@@ -1,0 +1,100 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.92.2 -->
+<interface>
+  <!-- interface-name example_app.ui -->
+  <requires lib="gtk" version="4.6"/>
+  <object class="GtkWindow" id="main_window">
+    <property name="default-width">1200</property>
+    <property name="receives-default">True</property>
+    <child>
+      <object class="GtkPaned">
+        <property name="position">400</property>
+        <child>
+          <object class="GtkFrame">
+            <property name="label">Customer List</property>
+            <property name="margin-bottom">10</property>
+            <property name="margin-end">10</property>
+            <property name="margin-start">10</property>
+            <property name="margin-top">10</property>
+            <child>
+              <object class="GtkBox" id="customer_list_box">
+                <property name="orientation">vertical</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="margin-bottom">10</property>
+            <property name="margin-end">10</property>
+            <property name="margin-start">10</property>
+            <property name="margin-top">10</property>
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkFrame">
+                <property name="label">Customer Details</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkFrame">
+                        <property name="label">ID</property>
+                        <child>
+                          <object class="GtkEntry" id="customer.id">
+                            <property name="input-purpose">email</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkFrame" id="customer.id_2">
+                        <property name="label">Name</property>
+                        <child>
+                          <object class="GtkEntry" id="customer.name"/>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <child>
+                          <object class="GtkFrame">
+                            <property name="label">Contract Start Date</property>
+                            <child>
+                              <object class="GtkCalendar" id="customer.contract_start_date">
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkFrame">
+                            <property name="label">Contract Start Date</property>
+                            <child>
+                              <object class="GtkCalendar" id="customer.contract_end_date">
+                                <property name="hexpand">True</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkFrame">
+                <property name="label">Addresses</property>
+                <child>
+                  <object class="GtkBox" id="addresses_box">
+                    <property name="orientation">vertical</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

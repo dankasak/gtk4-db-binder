@@ -1,0 +1,27 @@
+- Setting up column view widths is broken. This has changed significantly since gtk3. See posts:
+   https://discourse.gnome.org/t/do-size-allocate-in-gtk4/14907
+   https://discourse.gnome.org/t/trying-to-set-a-gtk-columnviews-width-after-size-allocation-has-occurred/25012
+  We currently use a Glib timeout ( every 200 ms ) to detect changes to the width of the scrolled window,
+  but there *must* be a better way
+
+--------
+
+- We currently can't handle NULL values in data. To support this, we need to extend the generated GridRow
+  class. We could either:
+
+   1) Have another property to store the values INCLUDING the NULL state ( this would be None in python ) and
+      marshall this property's value back to the on that's bound to the widgets. This is a bit awkward. But
+      it's also probably the easiest :)
+
+   2) We could potentially use gtk expressions?
+
+   3) We could use https://docs.gtk.org/gobject/method.Object.bind_property_full.html - for Forms, but
+      probably not for Datasheets?
+
+  I've done some work on setting some custom CSS to highlight a widget - this works. Once we figure out
+  modeling, we need to set this on widgets bound to a column that currently has a NULL value.
+
+--------
+
+- "Complete" the example app
+

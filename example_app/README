@@ -1,0 +1,13 @@
+The example_app.ui.cmb and example_app.ui files here were generated
+using Cambalache - https://gitlab.gnome.org/jpu/cambalache
+
+example_app.py is a simple example application and test-bed
+for development. If a sqlite database doesn't exist, it's created
+and populated with some demo data. Then 2 datasheets ( a customer
+list and an address list ) and a form ( customer form ) are created.
+
+The idea is you click a customer in the list to edit details for that
+customer, ( ie in the form, which has further fields from the DB ).
+
+Not everything is working yet - we haven't hit an initial release.
+But we're close.

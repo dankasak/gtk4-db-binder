@@ -1079,28 +1079,9 @@ class Gtk4SQLiteAbstract( Gtk4DbAbstract ):
 
         return [desc[0] for desc in cursor.description]
 
-    # def execute( self , cursor , sql , params={} ):
-    #
-    #     # import psycopg2
-    #
-    #     start_time = time.time()
-    #
-    #     try:
-    #         if len( params ) == 0:
-    #             cursor.execute( sql )
-    #         else:
-    #             cursor.execute( sql , params )
-    #     # except psycopg2.OperationalError as e:
-    #     #     raise e
-    #     except Exception as e:
-    #         raise e
-    #
-    #     end_time = time.time()
-    #     print( "execute() completed in {0} seconds".format( round( end_time - start_time ) , 2 ) )
-
     def last_insert_id( self , cursor ):
 
-        cursor.execute('SELECT LASTVAL()')
+        cursor.execute( 'select last_insert_rowid()' )
         return cursor.fetchone()[0]
 
     def _db_prepare_insert_column_fragment( self , column_definition , column_name ):
@@ -1110,9 +1091,9 @@ class Gtk4SQLiteAbstract( Gtk4DbAbstract ):
         # has to call to_date() for values going into date columns
 
         if column_definition['type'] == "date" or column_definition['type'] == "timestamp":
-            return "cast( nullif( %s, '' ) as timestamp )"
+            return "cast( nullif( ?, '' ) as timestamp )"
         else:
-            return "%s"
+            return "?"
 
     def _db_prepare_update_column_fragment( self , column_definition , column_name ):
 
@@ -1121,9 +1102,9 @@ class Gtk4SQLiteAbstract( Gtk4DbAbstract ):
         # has to call to_date() for values going into date columns
 
         if column_definition['type'] == "timestamp":
-            return "{0} = cast( nullif( %s , '' ) as timestamp )".format( column_name )
+            return "{0} = cast( nullif( ? , '' ) as timestamp )".format( column_name )
         else:
-            return "{0} = %s".format( column_name )
+            return "{0} = ?".format( column_name )
 
     def fetch_column_info( self , cursor ):
 
@@ -1198,7 +1179,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , dont_update_keys=False, auto_incrementing=True, on_apply=False
                  , sw_no_scroll=False, dump_on_error=False, no_auto_tools_box=False
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
-                 , quiet=False, recordset_items=None, on_row_select=None, **kwargs):
+                 , quiet=False, recordset_items=None, on_row_select=None
+                 , before_insert=None , on_insert=None , **kwargs):
 
         if recordset_items is None:
             recordset_items = ["insert", "undo", "delete", "apply", "data_to_csv"]
@@ -1245,6 +1227,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.widget_setup = False
         self.spinner = None
         self.current_track = None
+        self.before_insert = before_insert
+        self.on_insert = on_insert
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1280,6 +1264,22 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         toplevel_widget.connect( 'close_request' , self.on_toplevel_closed )
 
         self.window = toplevel_widget
+
+    def get_current_grid_row( self ):
+
+        position = self.datasheet.single_selection.get_selected()
+        grid_row = self.datasheet.single_selection[ position ]
+        return grid_row
+
+    def get_column_value( self , column_name ):
+
+        grid_row = self.get_current_grid_row()
+        return getattr( grid_row , column_name )
+
+    def set_column_value( self , column_name , value ):
+
+        grid_row = self.get_current_grid_row()
+        setattr( grid_row , column_name , value )
 
     def selection_changed_handler( self , selection, first_item_changed, no_of_items_changed ):
 
@@ -1420,12 +1420,21 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
     def insert( self , column_value_pair = [] , *args ):
 
+        if self.before_insert:
+            if not self.before_insert():
+                return
+
         new_record_values = []
         for i in self.fields:
             new_record_values.append( None )
         new_grid_row = self.datasheet.grid_row_class( 0 , new_record_values )
         new_grid_row.row_state = INSERTED
         self.datasheet.cv.get_model().get_model().append( new_grid_row )
+        model_size = len( self.datasheet.model )
+        self.datasheet.single_selection.set_selected( model_size - 1 )
+
+        if self.on_insert:
+            self.on_insert()
 
     def upsert_key( self , column_name , value ):
 
@@ -1434,8 +1443,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
     def delete( self , *args ):
 
         # single_selection = self.datasheet.cv.get_model()
-        position = self.single_selection.get_selected()
-        grid_row = self.single_selection[ position ]
+        position = self.datasheet.single_selection.get_selected()
+        grid_row = self.datasheet.single_selection[ position ]
         grid_row.row_state = DELETED
 
     def lock( self , *args ):

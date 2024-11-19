@@ -80,7 +80,8 @@ class ExampleApplication( Adw.Application ):
                 }
             ]
           , box = self.builder.get_object( 'addresses_box' )
-          , no_auto_tools_box = True
+          , before_insert = self.before_addresses_insert
+          , on_insert = self.on_addresses_insert
         )
 
         self.customer_list = Gtk4DbDatasheet.generator(
@@ -115,7 +116,7 @@ class ExampleApplication( Adw.Application ):
     def connect_and_init_sqlite( self ):
 
         new_setup = not( os.path.isfile( 'example.db' ))
-        connection = sqlite3.connect( "example.db" )
+        connection = sqlite3.connect( "example.db", autocommit=True )
         if new_setup:
             cursor = connection.cursor()
             cursor.execute( """
@@ -157,6 +158,19 @@ class ExampleApplication( Adw.Application ):
                 , addresses )
             connection.commit()
         return connection
+
+    def before_addresses_insert( self ):
+
+        customer_id = self.customer_list.get_column_value( "id" )
+        if customer_id is not None:
+            return True
+        else:
+            return False
+
+    def on_addresses_insert( self ):
+
+        customer_id = self.customer_list.get_column_value( "id" )
+        self.addresses.set_column_value( "customer_id" , customer_id )
 
     def on_apply( self , something ):
         self.form.apply()

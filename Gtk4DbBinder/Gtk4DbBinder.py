@@ -27,11 +27,11 @@ import json , uuid , importlib.util , sys , re , time
 
 # Define some 'constants'
 # These are the names of icons we render for the relevant record statuses
-UNCHANGED = "gtk-yes"
-CHANGED   = "gtk-refresh"
-INSERTED  = "gtk-add"
-DELETED   = "gtk-delete"
-LOCKED    = "gtk-dialog-authentication"
+UNCHANGED = "emblem-default"
+CHANGED   = "media-playlist-shuffle"
+INSERTED  = "list-add"
+DELETED   = "list-remove"
+LOCKED    = "security-high"
 
 class GridWidget( Gtk.Widget ):
 
@@ -290,7 +290,7 @@ class Gtk4DbAbstract( object ):
 
     def undo( self , *args ):
 
-        self.query( where_object=None , dont_apply=False )
+        self.query( dont_apply=True )
         return True
 
     def _do_delete( self , row=None ):
@@ -852,12 +852,22 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             grid_row.bind_property( column_name , widget , "label" , GObject.BindingFlags.SYNC_CREATE )
         elif type == "text" or type == "date" or type == "timestamp" or type == 'hidden':
             grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE )
+            # grid_row.bind_property_full( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE
+            #                            , self.bind_transform_to , self.bind_transform_from , None , None )
         elif type == "image":
             grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
         else:
             raise Exception( "Unknown type {0}".format( type ) )
 
         widget.model_position = item.get_position()
+
+    def bind_transform_to( self , one , two , three , four , five ):
+
+        print( "Hi there!" )
+
+    def bind_transform_from( self , one , two , three , four , five ):
+
+        print( "Hi there!" )
 
     def column_name_to_number( self , column_name ):
 

@@ -39,46 +39,47 @@ class ExampleApplication( Adw.Application ):
         self.addresses = Gtk4DbDatasheet.generator(
             connection = self.connection
             , sql = {
-                "select": "id, customer_id, address_line_1, address_line_2, city, country, postcode"
+                # "select": "id, customer_id, address_line_1, address_line_2, city, country, postcode"
+                "select": "*"
               , "from": "addresses"
               , "where": "customer_id=?"
               , "bind_values": [ 0 ]
             }
-            , fields = [
-                {
-                    'name': 'id'
-                  , 'type': 'hidden'
-                }
-              , {
-                    'name': 'customer_id'
-                  , 'type': 'hidden'
-                }
-              , {
-                    'name': 'address_line_1'
-                  , 'type': 'text'
-                  , 'x_percent': 25
-                }
-              , {
-                    'name': 'address_line_2'
-                  , 'type': 'text'
-                  , 'x_percent': 25
-                }
-              , {
-                    'name': 'city'
-                  , 'type': 'text'
-                  , 'x_percent': 20
-                }
-              , {
-                    'name': 'country'
-                  , 'type': 'text'
-                  , 'x_percent': 20
-                }
-              , {
-                    'name': 'postcode'
-                  , 'type': 'text'
-                  , 'x_percent': 10
-                }
-            ]
+            # , fields = [
+            #     {
+            #         'name': 'id'
+            #       , 'type': 'hidden'
+            #     }
+            #   , {
+            #         'name': 'customer_id'
+            #       , 'type': 'hidden'
+            #     }
+            #   , {
+            #         'name': 'address_line_1'
+            #       , 'type': 'text'
+            #       , 'x_percent': 25
+            #     }
+            #   , {
+            #         'name': 'address_line_2'
+            #       , 'type': 'text'
+            #       , 'x_percent': 25
+            #     }
+            #   , {
+            #         'name': 'city'
+            #       , 'type': 'text'
+            #       , 'x_percent': 20
+            #     }
+            #   , {
+            #         'name': 'country'
+            #       , 'type': 'text'
+            #       , 'x_percent': 20
+            #     }
+            #   , {
+            #         'name': 'postcode'
+            #       , 'type': 'text'
+            #       , 'x_percent': 10
+            #     }
+            # ]
           , box = self.builder.get_object( 'addresses_box' )
           , before_insert = self.before_addresses_insert
           , on_insert = self.on_addresses_insert
@@ -152,10 +153,11 @@ class ExampleApplication( Adw.Application ):
               , ( 1, 'Parramatta Road' , None , 'Auburn', 'Australia', None )
               , ( 2, 'HPPL House', '28-42 Ventnor Avenue', 'West Perth', 'Australia', 6005 )
             ]
-            cursor.executemany(
-                """insert into addresses ( customer_id, address_line_1 , address_line_2 , city, country, postcode )
-                       values ( ? , ? , ? , ? , ? , ? )"""
-                , addresses )
+            for i in range( 0, 1000 ):
+                cursor.executemany(
+                    """insert into addresses ( customer_id, address_line_1 , address_line_2 , city, country, postcode )
+                           values ( ? , ? , ? , ? , ? , ? )"""
+                  , addresses )
             connection.commit()
         return connection
 

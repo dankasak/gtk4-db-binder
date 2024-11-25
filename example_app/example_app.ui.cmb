@@ -22,7 +22,8 @@
 	(1,32,"GtkFrame",None,29,None,None,None,1,None,None),
 	(1,33,"GtkCalendar","customer.contract_end_date",32,None,None,None,0,None,None),
 	(1,34,"GtkFrame",None,22,None,None,None,1,None,None),
-	(1,35,"GtkBox","addresses_box",34,None,None,None,0,None,None)
+	(1,35,"GtkBox","addresses_box",34,None,None,None,0,None,None),
+	(1,36,"GtkImage",None,21,None,None,None,2,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","receives-default","True",None,None,None,None,None,None,None,None,None),
@@ -49,6 +50,7 @@
 	(1,32,"GtkFrame","label","Contract Start Date",0,None,None,None,None,None,None,None,None),
 	(1,33,"GtkWidget","hexpand","True",0,None,None,None,None,None,None,None,None),
 	(1,34,"GtkFrame","label","Addresses",None,None,None,None,None,None,None,None,None),
-	(1,35,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None)
+	(1,35,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
+	(1,36,"GtkImage","icon-name","security-high",None,None,None,None,None,None,None,None,None)
   </object_property>
 </cambalache-project>

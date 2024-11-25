@@ -76,21 +76,25 @@ class Gtk4DbAbstract( object ):
         #    if ( not $self->{fields} and not exists $self->{no_autosizing} ) {
         if not self.fields:
             no_of_fields = len( self.fieldlist )
-            x_percent = None
-            x_absolute = None
             if no_of_fields:
                 if no_of_fields < 8:
-                    x_percent = 100 / no_of_fields
+                    for field in self.fieldlist:
+                        self.fields.append(
+                            {
+                                "name"      : field
+                              , "x_percent" : 100 / no_of_fields
+                            }
+                        )
                 else:
-                    x_absolute = 100  # Don't set percentages < 12.5 -doesn't really work so well ...
-            for field in self.fieldlist:
-                self.fields.append(
-                    {
-                        "name"      : field
-                      , "x_percent" : x_percent
-                      , "x_absolute": x_absolute
-                    }
-                )
+                    # Don't set percentages < 12.5 -doesn't really work so well ...
+                    for field in self.fieldlist:
+                        self.fields.append(
+                            {
+                                "name"       : field
+                              , "x_absolute" : 100
+                            }
+                        )
+
         if not self.primary_keys:
             self.read_only = True
             if not self.quiet:
@@ -598,11 +602,14 @@ class Gtk4DbAbstract( object ):
         indirect_p2 = "{1}"
 
         for i in range( 0 , len( column_definitions ) ):
-            class_def = class_def + "        if record[ {0} ] is not None:\n".format( i )
-            class_def = class_def + "            self._{0} = record[ {1} ]\n".format( column_definitions[ i ]['name'] , i )
-            class_def = class_def + "        else:\n"
-            class_def = class_def + "            self._{0} = ''\n".format( column_definitions[ i ]['name'] )
-            class_def = class_def + "#        print( \"{0} attr set to: {1}\".format( self._{0} ) )\n\n".format( column_definitions[ i ]['name'] , indirect_p1 )
+            # class_def = class_def + "        if record[ {0} ] is not None:\n".format( i )
+            # class_def = class_def + "            self._{0} = record[ {1} ]\n".format( column_definitions[ i ]['name'] , i )
+            # class_def = class_def + "        else:\n"
+            # class_def = class_def + "            self._{0} = ''\n".format( column_definitions[ i ]['name'] )
+            # class_def = class_def + "#        print( \"{0} attr set to: {1}\".format( self._{0} ) )\n\n".format( column_definitions[ i ]['name'] , indirect_p1 )
+
+            class_def = class_def + "        self._{0} = record[ {1} ]\n".format( column_definitions[ i ]['name'] , i )
+
             access_methods.append (
                 "    @GObject.Property(type=str)\n" \
                 "    def {0}( self ):\n" \
@@ -610,13 +617,13 @@ class Gtk4DbAbstract( object ):
                 "    \n" \
                 "    @{0}.setter\n" \
                 "    def {0}( self , {0} ):\n" \
-                "#        print( \"current: [{3}] ... new: [{4}]\".format( {0} , self._{0} ) )\n" \
+                "        print( \"In [{0}].setter() ... current: [{3}] ... new: [{4}]\".format( {0} , self._{0} ) )\n" \
                 "        if str( self._{0} ) != {0}:\n" \
-                "#            print( \"[{0}] changed\" )\n"
+                "            print( \"[{0}] changed\" )\n"
                 "            self._{0} = {0}\n" \
                 "            self.notify( \"{0}\" )\n" \
                 "            if self.row_state == '{1}':\n" \
-                "#                print( \"grid row state ==> changed\" )\n" \
+                "                print( \"grid row state ==> changed\" )\n" \
                 "                self.row_state = '{2}'\n" \
                 "                self.notify( \"row_state\" )\n    ".format(
                     column_definitions[ i ]['name'] # 0
@@ -711,7 +718,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         self.cv = Gtk.ColumnView( hexpand=True , single_click_activate=False )
 
         # TODO: Setting single_click_activate=True above makes hovering with the mouse select a row
-        # TODO: What we probably want is selecting a row when it's clicked in ( and not juse in the record status image )
+        # TODO: What we probably want is selecting a row when it's clicked in ( and not just in the record status image )
 
         # A column for the row_state ( # )
         cvc = Gtk.ColumnViewColumn( title = '#' )
@@ -743,18 +750,28 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         elif type == "text" or type == "date" or type == "timestamp":
             entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
             item.set_child( entry )
-            entry.connect( "activate" , self.on_entry_activate )
+
+            # pre bi-directional binding:
+            # entry.connect( "activate" , self.on_entry_activate )
+
+            # was commented:
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
-            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+
+            # pre bi-directional binding:
+            # entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+
         elif type == "image":
             image = GridImage( column_name=name )
             item.set_child( image )
         elif type == 'hidden':
             entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
             item.set_child( entry )
-            entry.connect( "activate" , self.on_entry_activate )
+
+            # pre bi-directional binding:
+            # entry.connect( "activate" , self.on_entry_activate )
+            # entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
-            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
         else:
             raise Exception( "Unknown type: {0}".format( type ) )
 
@@ -804,7 +821,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
                 this_width = 0
             if d['type'] == 'hidden':
                 this_width = 0
-            elif d['x_percent']:
+            elif 'x_percent' in d.keys():
                 this_width = available_width / ( 100 / d['x_percent'] )
             # print( " column {0} ==> width {1}".format( d['name'] , this_width ) )
             d['current_width'] = this_width
@@ -851,9 +868,16 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         if type == "label":
             grid_row.bind_property( column_name , widget , "label" , GObject.BindingFlags.SYNC_CREATE )
         elif type == "text" or type == "date" or type == "timestamp" or type == 'hidden':
-            grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE )
-            # grid_row.bind_property_full( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE
-            #                            , self.bind_transform_to , self.bind_transform_from , None , None )
+
+            # grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE )
+
+            # Use bi-directional binding causes 100% cpu usage and
+            # lockups when using lists larger than a few hundred rows :(
+
+            grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE
+                                                                  | GObject.BindingFlags.BIDIRECTIONAL
+                                  , self.bind_transform_to )
+
         elif type == "image":
             grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
         else:
@@ -861,13 +885,13 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
         widget.model_position = item.get_position()
 
-    def bind_transform_to( self , one , two , three , four , five ):
+    def bind_transform_to( self , binding , value ):
 
-        print( "Hi there!" )
+        return '' if value is None else value
 
-    def bind_transform_from( self , one , two , three , four , five ):
+    def bind_transform_from( self , binding , value ):
 
-        print( "Hi there!" )
+        return None if value == '' else value
 
     def column_name_to_number( self , column_name ):
 
@@ -1167,7 +1191,9 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             raise Exception( "factory function wasn't passed a connection" )
         else:
             db_name_map = {
-                'psycopg2': 'Postgres'
+                'psycopg': 'Postgres'
+              , 'psycopg2': 'Postgres'
+              , 'psycopg3': 'Postgres'
               , 'mysql': 'MySQL'
               , 'sqlite3': 'SQLite'
               , 'sqlite': 'SQLite'
@@ -1532,7 +1558,9 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             raise Exception( "factory function wasn't passed a connection" )
         else:
             db_name_map = {
-                'psycopg2': 'Postgres'
+                'psycopg': 'Postgres'
+              , 'psycopg2': 'Postgres'
+              , 'psycopg3': 'Postgres'
               , 'mysql':    'MySQL'
               , 'sqlite3':  'SQLite'
               , 'sqlite':   'SQLite'

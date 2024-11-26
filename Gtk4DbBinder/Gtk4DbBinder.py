@@ -86,7 +86,7 @@ class Gtk4DbAbstract( object ):
                             }
                         )
                 else:
-                    # Don't set percentages < 12.5 -doesn't really work so well ...
+                    # Don't set percentages < 12.5 - doesn't really work so well ...
                     for field in self.fieldlist:
                         self.fields.append(
                             {
@@ -109,7 +109,7 @@ class Gtk4DbAbstract( object ):
             self.column_name_to_number_mapping[ field['name'] ] = column_no
             # Grab a default renderer type if one hasn't been defined
             if 'type' not in field.keys():
-                sql_name = self.column_name_to_sql_name( field['name'] ) # TODO: AttributeError: 'Gtk4PostgresForm' object has no attribute 'column_name_to_sql_name'
+                sql_name = self.column_name_to_sql_name( field['name'] )
                 fieldtype = self.column_info[ sql_name ]['type']
                 if not fieldtype:
                     field['type'] = "text"
@@ -752,13 +752,13 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             item.set_child( entry )
 
             # pre bi-directional binding:
-            # entry.connect( "activate" , self.on_entry_activate )
+            entry.connect( "activate" , self.on_entry_activate )
 
             # was commented:
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
 
             # pre bi-directional binding:
-            # entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
 
         elif type == "image":
             image = GridImage( column_name=name )
@@ -768,8 +768,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             item.set_child( entry )
 
             # pre bi-directional binding:
-            # entry.connect( "activate" , self.on_entry_activate )
-            # entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+            entry.connect( "activate" , self.on_entry_activate )
+            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
 
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
         else:
@@ -858,7 +858,14 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         # single_selection = self.cv.get_model()
         position = entry.model_position
         grid_row = self.single_selection[ position ]
-        setattr( grid_row , entry.column_name , entry.get_text() )
+
+        # Here we try to avoid replacing NULL ( None ) values in the model with the empty string,
+        # in cases where someone's just clicked in an entry, but not changed anything.
+        model_value = getattr( grid_row , entry.column_name )
+        if model_value is None and entry.get_text() == '':
+            return
+        else:
+            setattr( grid_row , entry.column_name , entry.get_text() )
 
     def bind( self , factory , item , type , column_name ):
 
@@ -873,9 +880,11 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
             # Use bi-directional binding causes 100% cpu usage and
             # lockups when using lists larger than a few hundred rows :(
+            # If we manage to re-enable bi-directional bindings, we need to
+            # remove the custom entry state handling, and add the "bind_transform_to" method back
 
             grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE
-                                                                  | GObject.BindingFlags.BIDIRECTIONAL
+                                                                  # | GObject.BindingFlags.BIDIRECTIONAL
                                   , self.bind_transform_to )
 
         elif type == "image":
@@ -891,6 +900,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
     def bind_transform_from( self , binding , value ):
 
+        # Not in use - will be called if we can re-emable bi-directional bindings
         return None if value == '' else value
 
     def column_name_to_number( self , column_name ):
@@ -1277,9 +1287,6 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         if not self.query():
             return
 
-        if self.on_row_select:
-            self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
-
         if not self.no_auto_tools_box:
             self.recordset_tools_box = Gtk.Box( orientation = Gtk.Orientation.HORIZONTAL , spacing = 5 )
             self.recordset_tools_box.set_hexpand( True )
@@ -1339,10 +1346,11 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.box.prepend( self.datasheet )
         self.widget_setup = True
 
-        # For some reason, even though a row *is* selected, the 1st such selection doesn't get triggered for us
-        # Maybe we connect to late?
-        if len( self.datasheet.model ) and self.on_row_select:
-            self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
+        if self.on_row_select:
+            self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
+            # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
+            if len( self.datasheet.model ):
+                self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
 
         if self.after_query:
             self.after_query()
@@ -1683,8 +1691,6 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         if not self.setup_fields():
             return None
 
-        # TODO: Don't create a FormWidget - move all this logic into Gtk4DbForm
-        # self.form = FormWidget( self.fields , cursor )
         self.position = 0
         self.model = self.generate_model( self.fields , cursor )
         # If the query returned 0 records, we still want a ( blank ) record

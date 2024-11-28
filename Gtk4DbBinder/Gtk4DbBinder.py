@@ -504,9 +504,17 @@ class Gtk4DbAbstract( object ):
                 raise Exception( "Unsupported recordset tool item: {0}".format( item_name ) )
 
             if this_item['type'] == 'button':
+                handler = None
+                markup = None
+                if 'handler' in this_item.keys():
+                    handler = this_item['handler']
+                if 'markup' in this_item.keys():
+                    markup = this_item['markup']
                 widget = self.icon_button(
                     label_text = item_name
                   , icon_name  = this_item['icon_name']
+                  , handler    = handler
+                  , markup     = markup
                 )
             elif this_item['type'] == 'spinbutton':
                 adjustment = Gtk.Adjustment.new( 1 , 1 , 200 , 1 , 10, 0 )
@@ -815,17 +823,18 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
         # Now allocate the remaining space
         for d in self._column_definitions:
-            if 'current_width' in d.keys():
-                this_width = d['current_width']
-            else:
-                this_width = 0
-            if d['type'] == 'hidden':
-                this_width = 0
-            elif 'x_percent' in d.keys():
-                this_width = available_width / ( 100 / d['x_percent'] )
-            # print( " column {0} ==> width {1}".format( d['name'] , this_width ) )
-            d['current_width'] = this_width
-            d['cvc'].set_fixed_width( this_width )
+            if 'x_absolute' not in d.keys():
+                if 'current_width' in d.keys():
+                    this_width = d['current_width']
+                else:
+                    this_width = 0
+                if d['type'] == 'hidden':
+                    this_width = 0
+                elif 'x_percent' in d.keys():
+                    this_width = available_width / ( 100 / d['x_percent'] )
+                  # print( " column {0} ==> width {1}".format( d['name'] , this_width ) )
+                d['current_width'] = this_width
+                d['cvc'].set_fixed_width( this_width )
 
     def on_entry_move_focus( self , entry , flags: Gtk.StateFlags ):
 
@@ -1337,6 +1346,11 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         if self.datasheet:
             self.box.remove( self.datasheet )
 
+        # We need to reset this, or we can miss handling row-selected events
+        # ( eg if the 1st row was selected, and we request, and again the 1st row is selected )
+
+        self.current_track = None
+
         cursor = super()._do_query()
 
         if not self.setup_fields():
@@ -1759,9 +1773,14 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                 else:
                     self.model_to_widget_bindings.append(
                         this_grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.BIDIRECTIONAL
-                                                                                   | GObject.BindingFlags.SYNC_CREATE )
+                                                                                   | GObject.BindingFlags.SYNC_CREATE
+                                                   , self.bind_transform_to )
                     )
                     signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
+
+    def bind_transform_to( self , binding , value ):
+
+        return '' if value is None else value
 
     def handle_grid_notify( self , grid_row , param_spec ):
         notify_topic = param_spec.name

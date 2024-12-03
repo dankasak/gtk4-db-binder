@@ -41,11 +41,13 @@ class GridWidget( Gtk.Widget ):
         self.model_position = -1
         self.column_name = column_name
 
+
 class GridEntry( Gtk.Entry , GridWidget ):
 
     def __init__( self , **kwargs ):
 
         super().__init__( **kwargs )
+
 
 class GridLabel( Gtk.Label , GridWidget ):
 
@@ -53,11 +55,34 @@ class GridLabel( Gtk.Label , GridWidget ):
 
         super().__init__( **kwargs )
 
+
 class GridImage( Gtk.Image , GridWidget ):
 
     def __init__( self , **kwargs ):
 
         super().__init__( **kwargs )
+
+
+class ForeignKeyBinder( GObject.Object ):
+    __gtype_name__ = 'ForeignKeyBinder'
+
+    def __init__( self , keys_list ):
+
+        super().__init__()
+        self._keys_list = keys_list
+        self._keys_dict = {}
+        for key in keys_list:
+            setattr( self , key , None )
+
+    @GObject.Property( type=str )
+    def keys_dict( self ):
+        return self._keys_dict
+
+    @keys_dict.setter
+    def keys_dict( self , keys_dict ):
+        if self._keys_dict != keys_dict:
+            self._keys_dict = keys_dict
+            self.notify( "keys_dict" )
 
 
 class Gtk4DbAbstract( object ):
@@ -71,8 +96,11 @@ class Gtk4DbAbstract( object ):
         elif self.fields_setup:
             return True
 
-        # If there are no field definitions, then create some from our fieldlist from the database
-        # TODO: fix no_autosizing
+        """
+           If there are no field definitions, then create some from our fieldlist from the database
+           TODO: fix no_autosizing
+        """
+
         #    if ( not $self->{fields} and not exists $self->{no_autosizing} ) {
         if not self.fields:
             no_of_fields = len( self.fieldlist )
@@ -505,7 +533,7 @@ class Gtk4DbAbstract( object ):
 
             if this_item['type'] == 'button':
                 handler = None
-                markup = None
+                markup = ''
                 if 'handler' in this_item.keys():
                     handler = this_item['handler']
                 if 'markup' in this_item.keys():
@@ -672,6 +700,57 @@ class Gtk4DbAbstract( object ):
             track = track + 1
 
         return model
+
+    def bind_to_child( self , child_gtk4_db_binder , column_mapping_list ):
+
+        """
+           Bind to a child form/datasheet object, so that when:
+               - a new record is navigated to
+               - a new value is entered any column in column_list
+              ... we can automate the process of requerying ( which is otherwise tedious )
+              ... and also handle inserts in the child object
+        """
+
+        child_keys_list = []
+        for column_mapping in column_mapping_list:
+            """
+               Each column_mapping is a dict with a 'source' and 'target' column.
+               We create a ForeignKeyBinder in the child, and the child will in turn connect to the FKB's notify signal
+               to trigger actions that need to occur when we push changes to the object.
+            """
+            child_keys_list.append( column_mapping['target'] )
+
+        self.child_foreign_key_binders.append(
+            {
+                'binder': child_gtk4_db_binder.create_foreign_key_binder( child_keys_list )
+              , 'mapping': column_mapping_list
+            }
+        )
+
+    def create_foreign_key_binder( self , keys_list ):
+
+        self.foreign_key_binder = ForeignKeyBinder( keys_list )
+        self.foreign_key_binder.connect( 'notify' , self.handle_parent_foreign_key_update )
+        return self.foreign_key_binder
+
+    def handle_parent_foreign_key_update( self , foreign_key_binder , g_param_spec ):
+
+        """Here we handle a parent binder being updated"""
+
+        keys_dict = json.loads( foreign_key_binder.keys_dict )
+        filter_list = []
+        key_values_list = []
+        for key in keys_dict:
+            filter_list.append( '{0} = ?'.format( key ) )
+            key_values_list.append( keys_dict[ key ] )
+        filter_string = " and ".join( filter_list )
+
+        self.query(
+            where = filter_string
+          , bind_values = key_values_list
+        )
+
+        print( "hi" )
 
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
@@ -1284,6 +1363,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.current_track = None
         self.before_insert = before_insert
         self.on_insert = on_insert
+        self.child_foreign_key_binders = []
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1323,23 +1403,36 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         grid_row = self.datasheet.single_selection[ position ]
         return grid_row
 
-    def get_column_value( self , column_name ):
+    def get( self , column_name ):
 
         grid_row = self.get_current_grid_row()
         return getattr( grid_row , column_name )
 
-    def set_column_value( self , column_name , value ):
+    def set( self , column_name , value ):
 
         grid_row = self.get_current_grid_row()
         setattr( grid_row , column_name , value )
 
     def selection_changed_handler( self , selection, first_item_changed, no_of_items_changed ):
 
-        position = selection.get_selected()
-        grid_row = selection[ position ]
-        if grid_row.track() != self.current_track:
-            self.current_track = grid_row.track()
-            self.on_row_select( grid_row )
+        if self.on_row_select or len( self.child_foreign_key_binders ):
+            position = selection.get_selected()
+            grid_row = selection[ position ]
+            if grid_row.track() != self.current_track:
+                for fkb in self.child_foreign_key_binders:
+                    """
+                      Here we assemble a keys dict and call the foreign key binder's setter method,
+                      which will trigger a child requery.
+                      Each fkb is a dict containing a mapping and a binder
+                      ... and each mapping is a dict with a source and a target
+                    """
+                    keys_dict = {}
+                    for this_mapping in fkb['mapping']:
+                        keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
+                    setattr( fkb['binder'] , 'keys_dict' , json.dumps( keys_dict ) )
+                self.current_track = grid_row.track()
+                if self.on_row_select:
+                    self.on_row_select( grid_row )
 
     def _do_query( self ):
 
@@ -1360,11 +1453,16 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.box.prepend( self.datasheet )
         self.widget_setup = True
 
-        if self.on_row_select:
-            self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
-            # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
-            if len( self.datasheet.model ):
-                self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
+#        if self.on_row_select:
+#            self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
+#            # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
+#            if len( self.datasheet.model ):
+#                self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
+
+        self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
+        # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
+        if len( self.datasheet.model ):
+            self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
 
         if self.after_query:
             self.after_query()
@@ -1521,7 +1619,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         renderer.set( "model" , model )
 
         return True
-    
+
     def create_dynamic_model( self , model_setup, data ):
 
         # This function accepts a combo definition and a row of data ( *MINUS* the record status column ),
@@ -1529,13 +1627,13 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         # We currently only support a model with 2 columns: an ID column and a Display column
 
         # TODO create_dynamic_model: Support adding more columns to the model
-        
+
         print( "create_dynamic_model() not implemented!" )
-    
+
     def setup_combo( self , combo_name ):
-        
+
         print( "setup_combo() not implemented!" )
-    
+
     def any_changes( self ):
 
         model = self.datasheet.cv.get_model()
@@ -1544,24 +1642,24 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             if state != UNCHANGED and state != LOCKED:
                 return True
         return False
-    
+
     def sum_column( self , column_no, conditions ):
-        
+
         # This function returns the sum of all values in the given column
         print( "sum_column() not implemented!" )
-    
+
     def max_column( self , column_no ):
-        
+
         # This function returns the MAXIMUM value in a given column
         print( "max_column() not implemented!" )
-     
+
     def average_column( self , column_no ):
-        
+
         # This function returns the AVERAGE value in a given column
         print( "average_column() not implemented!" )
-     
+
     def count( self , column_no , conditions ):
-        
+
         # This function returns the number of all records ( optionally where $column_no matches $conditions )
         print( "count() not implemented!" )
 
@@ -1656,6 +1754,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.widget_prefix = widget_prefix
         self.css_provider = css_provider
         self.model_to_widget_bindings = []
+        self.child_foreign_key_binders = []
 
         red_frame_css = """
         entry.red-frame {
@@ -1697,6 +1796,14 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                 self.window = widget
                 return
 
+
+    def get( self , column_name ):
+
+        return getattr( grid_row , column_name )
+
+    def set( self , column_name , value ):
+
+        setattr( grid_row , column_name , value )
 
     def _do_query( self ):
 

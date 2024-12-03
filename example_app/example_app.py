@@ -107,12 +107,22 @@ class ExampleApplication( Adw.Application ):
           , no_auto_tools_box = True
         )
 
+        self.customer_list.bind_to_child(
+            self.addresses
+            , [
+                {
+                    'source': 'id'
+                  , 'target': 'customer_id'
+                }
+            ]
+        )
+
         self.example_window.present()
 
     def on_customer_row_select( self , grid_row ):
 
         self.customer_form.query( bind_values = [ grid_row.id ] )
-        self.addresses.query( bind_values = [ grid_row.id ] )
+        # self.addresses.query( bind_values = [ grid_row.id ] )
 
     def connect_and_init_sqlite( self ):
 

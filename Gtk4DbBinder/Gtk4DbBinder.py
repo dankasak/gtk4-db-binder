@@ -66,11 +66,12 @@ class GridImage( Gtk.Image , GridWidget ):
 class ForeignKeyBinder( GObject.Object ):
     __gtype_name__ = 'ForeignKeyBinder'
 
-    def __init__( self , keys_list ):
+    def __init__( self , keys_list , mapping ):
 
         super().__init__()
         self._keys_list = keys_list
         self._keys_dict = {}
+        self.mapping = mapping
         for key in keys_list:
             setattr( self , key , None )
 
@@ -319,6 +320,34 @@ class Gtk4DbAbstract( object ):
         self.new_where_dict = {}
 
         return cursor
+
+    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
+
+        if self.before_insert:
+            if not self.before_insert():
+                return False
+
+        foreign_keys = {}
+        if self.foreign_key_binder:
+            foreign_keys = json.loads( self.foreign_key_binder.keys_dict )
+
+        new_record_values = []
+        for i in self.fieldlist:
+            this_value = None
+            if i in columns_and_values.keys():
+                this_value = columns_and_values[ i ]
+            if i in foreign_keys.keys():
+                this_value = foreign_keys[ i ]
+            new_record_values.append( this_value )
+
+        new_grid_row = self.grid_row_class( 0 , new_record_values )
+        new_grid_row.row_state = row_state
+        self.model.append( new_grid_row )
+
+        if self.on_insert:
+            self.on_insert()
+
+        return True
 
     def undo( self , *args ):
 
@@ -699,6 +728,9 @@ class Gtk4DbAbstract( object ):
             model.append( grid_row_class( track , row ) )
             track = track + 1
 
+        self.grid_row_class = grid_row_class
+        self.model = model
+
         return model
 
     def bind_to_child( self , child_gtk4_db_binder , column_mapping_list ):
@@ -720,16 +752,15 @@ class Gtk4DbAbstract( object ):
             """
             child_keys_list.append( column_mapping['target'] )
 
-        self.child_foreign_key_binders.append(
-            {
-                'binder': child_gtk4_db_binder.create_foreign_key_binder( child_keys_list )
-              , 'mapping': column_mapping_list
-            }
-        )
+        this_foreign_key_binder = child_gtk4_db_binder.create_foreign_key_binder( child_keys_list , column_mapping_list )
+        self.child_foreign_key_binders.append( this_foreign_key_binder )
 
-    def create_foreign_key_binder( self , keys_list ):
+        if len( self.datasheet.model ):
+            self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , this_foreign_key_binder )
 
-        self.foreign_key_binder = ForeignKeyBinder( keys_list )
+    def create_foreign_key_binder( self , keys_list , mapping ):
+
+        self.foreign_key_binder = ForeignKeyBinder( keys_list , mapping )
         self.foreign_key_binder.connect( 'notify' , self.handle_parent_foreign_key_update )
         return self.foreign_key_binder
 
@@ -749,8 +780,6 @@ class Gtk4DbAbstract( object ):
             where = filter_string
           , bind_values = key_values_list
         )
-
-        print( "hi" )
 
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
@@ -1364,6 +1393,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.before_insert = before_insert
         self.on_insert = on_insert
         self.child_foreign_key_binders = []
+        self.foreign_key_binder = None
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1420,19 +1450,22 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             grid_row = selection[ position ]
             if grid_row.track() != self.current_track:
                 for fkb in self.child_foreign_key_binders:
-                    """
-                      Here we assemble a keys dict and call the foreign key binder's setter method,
-                      which will trigger a child requery.
-                      Each fkb is a dict containing a mapping and a binder
-                      ... and each mapping is a dict with a source and a target
-                    """
-                    keys_dict = {}
-                    for this_mapping in fkb['mapping']:
-                        keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
-                    setattr( fkb['binder'] , 'keys_dict' , json.dumps( keys_dict ) )
+                    self.sync_grid_row_to_foreign_key_binding( grid_row , fkb )
                 self.current_track = grid_row.track()
                 if self.on_row_select:
                     self.on_row_select( grid_row )
+
+    def sync_grid_row_to_foreign_key_binding( self , grid_row , foreign_key_binding ):
+            """
+              Here we assemble a keys dict and call the foreign key binder's setter method,
+              which will trigger a child requery.
+              This is a separate method, which is called from above, and also when
+              setting up the binding initially
+            """
+            keys_dict = {}
+            for this_mapping in foreign_key_binding.mapping:
+                keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
+            setattr( foreign_key_binding , 'keys_dict' , json.dumps( keys_dict ) )
 
     def _do_query( self ):
 
@@ -1450,6 +1483,11 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             return None
 
         self.datasheet = DatasheetWidget( self.fields , cursor )
+
+        # We need these back at this level, and not in the DatasheetWidget, for things to work in a generic way
+        self.grid_row_class = self.datasheet.grid_row_class
+        self.model = self.datasheet.model
+
         self.box.prepend( self.datasheet )
         self.widget_setup = True
 
@@ -1574,23 +1612,13 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         return True
 
-    def insert( self , column_value_pair = [] , *args ):
+    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
 
-        if self.before_insert:
-            if not self.before_insert():
-                return
+        if not super().insert( button , row_state = row_state , columns_and_values = columns_and_values , *args ):
+            return
 
-        new_record_values = []
-        for i in self.fields:
-            new_record_values.append( None )
-        new_grid_row = self.datasheet.grid_row_class( 0 , new_record_values )
-        new_grid_row.row_state = INSERTED
-        self.datasheet.cv.get_model().get_model().append( new_grid_row )
-        model_size = len( self.datasheet.model )
+        model_size = len( self.model )
         self.datasheet.single_selection.set_selected( model_size - 1 )
-
-        if self.on_insert:
-            self.on_insert()
 
     def upsert_key( self , column_name , value ):
 
@@ -1702,7 +1730,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , dont_update_keys=False , auto_incrementing=True , on_apply=False , sw_no_scroll=False , dump_on_error=False
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
-                  , css_provider = None ):
+                  , css_provider = None , before_insert = False , on_insert = False ):
 
         if recordset_items is None:
             recordset_items = [ "spinner" , "status" , "insert" , "undo" , "delete" , "apply" ]
@@ -1735,6 +1763,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.auto_incrementing = auto_incrementing
         self.on_apply = on_apply
         self.before_apply = before_apply
+        self.before_insert = before_insert
+        self.on_insert = on_insert
         self.changed_signal = None
 
         self.after_query = None
@@ -1755,6 +1785,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.css_provider = css_provider
         self.model_to_widget_bindings = []
         self.child_foreign_key_binders = []
+        self.foreign_key_binder = None
 
         red_frame_css = """
         entry.red-frame {
@@ -1816,7 +1847,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.model = self.generate_model( self.fields , cursor )
         # If the query returned 0 records, we still want a ( blank ) record
         if not len( self.model ):
-            self.insert( row_state=UNCHANGED )
+            self.insert( None , row_state=UNCHANGED )
         self.move( 0 , 0 )
         self.widget_setup = True
         self.set_spinner_range()
@@ -1997,15 +2028,12 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         return True
 
-    def insert( self , row_state = INSERTED , column_value_pair = [] , *args ):
+    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
 
-        new_record_values = []
-        for i in self.fields:
-            new_record_values.append( None )
-        # new_grid_row = self.datasheet.grid_row_class( 0 , new_record_values )
-        new_grid_row = self.grid_row_class( 0 , new_record_values )
-        new_grid_row.row_state = row_state
-        self.model.append( new_grid_row )
+        if not super().insert( button , row_state = row_state , columns_and_values = {} , *args ):
+            return
+
+        self.move( len( self.model ) - 1 )
 
     def upsert_key( self , column_name , value ):
 

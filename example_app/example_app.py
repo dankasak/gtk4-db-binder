@@ -1,4 +1,5 @@
 import gi , sqlite3 , os
+from sqlalchemy.engine.interfaces import IsolationLevel
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -45,44 +46,42 @@ class ExampleApplication( Adw.Application ):
               , "where": "customer_id=?"
               , "bind_values": [ 0 ]
             }
-            # , fields = [
-            #     {
-            #         'name': 'id'
-            #       , 'type': 'hidden'
-            #     }
-            #   , {
-            #         'name': 'customer_id'
-            #       , 'type': 'hidden'
-            #     }
-            #   , {
-            #         'name': 'address_line_1'
-            #       , 'type': 'text'
-            #       , 'x_percent': 25
-            #     }
-            #   , {
-            #         'name': 'address_line_2'
-            #       , 'type': 'text'
-            #       , 'x_percent': 25
-            #     }
-            #   , {
-            #         'name': 'city'
-            #       , 'type': 'text'
-            #       , 'x_percent': 20
-            #     }
-            #   , {
-            #         'name': 'country'
-            #       , 'type': 'text'
-            #       , 'x_percent': 20
-            #     }
-            #   , {
-            #         'name': 'postcode'
-            #       , 'type': 'text'
-            #       , 'x_percent': 10
-            #     }
-            # ]
+          , fields = [
+                {
+                    'name': 'id'
+                  , 'type': 'hidden'
+                }
+              , {
+                    'name': 'customer_id'
+                  , 'type': 'hidden'
+                }
+              , {
+                    'name': 'address_line_1'
+                  , 'type': 'text'
+                  , 'x_percent': 25
+                }
+              , {
+                    'name': 'address_line_2'
+                  , 'type': 'text'
+                  , 'x_percent': 25
+                }
+              , {
+                    'name': 'city'
+                  , 'type': 'text'
+                  , 'x_percent': 20
+                }
+              , {
+                    'name': 'country'
+                  , 'type': 'text'
+                  , 'x_percent': 20
+                }
+              , {
+                    'name': 'postcode'
+                  , 'type': 'text'
+                  , 'x_percent': 10
+                }
+            ]
           , box = self.builder.get_object( 'addresses_box' )
-          , before_insert = self.before_addresses_insert
-          , on_insert = self.on_addresses_insert
         )
 
         self.customer_list = Gtk4DbDatasheet.generator(
@@ -103,13 +102,21 @@ class ExampleApplication( Adw.Application ):
                     }
                ]
           , box = self.builder.get_object( 'customer_list_box' )
-          , on_row_select = self.on_customer_row_select
           , no_auto_tools_box = True
         )
 
         self.customer_list.bind_to_child(
+            self.customer_form
+          , [
+                {
+                    'source': 'id'
+                  , 'target': 'id'
+                }
+            ]
+        )
+        self.customer_list.bind_to_child(
             self.addresses
-            , [
+          , [
                 {
                     'source': 'id'
                   , 'target': 'customer_id'
@@ -119,15 +126,11 @@ class ExampleApplication( Adw.Application ):
 
         self.example_window.present()
 
-    def on_customer_row_select( self , grid_row ):
-
-        self.customer_form.query( bind_values = [ grid_row.id ] )
-        # self.addresses.query( bind_values = [ grid_row.id ] )
-
     def connect_and_init_sqlite( self ):
 
         new_setup = not( os.path.isfile( 'example.db' ))
-        connection = sqlite3.connect( "example.db", autocommit=True )
+        # connection = sqlite3.connect( "example.db", autocommit=True )
+        connection = sqlite3.connect( "example.db", isolation_level=None )
         if new_setup:
             cursor = connection.cursor()
             cursor.execute( """
@@ -171,21 +174,6 @@ class ExampleApplication( Adw.Application ):
             connection.commit()
         return connection
 
-    def before_addresses_insert( self ):
-
-        customer_id = self.customer_list.get_column_value( "id" )
-        if customer_id is not None:
-            return True
-        else:
-            return False
-
-    def on_addresses_insert( self ):
-
-        customer_id = self.customer_list.get_column_value( "id" )
-        self.addresses.set_column_value( "customer_id" , customer_id )
-
-    def on_apply( self , something ):
-        self.form.apply()
 
 app = ExampleApplication()
 

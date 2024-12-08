@@ -1,5 +1,4 @@
 import gi , sqlite3 , os
-from sqlalchemy.engine.interfaces import IsolationLevel
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -39,8 +38,7 @@ class ExampleApplication( Adw.Application ):
 
         self.addresses = Gtk4DbDatasheet.generator(
             connection = self.connection
-            , sql = {
-                # "select": "id, customer_id, address_line_1, address_line_2, city, country, postcode"
+          , sql = {
                 "select": "*"
               , "from": "addresses"
               , "where": "customer_id=?"
@@ -114,6 +112,7 @@ class ExampleApplication( Adw.Application ):
                 }
             ]
         )
+
         self.customer_list.bind_to_child(
             self.addresses
           , [
@@ -129,7 +128,6 @@ class ExampleApplication( Adw.Application ):
     def connect_and_init_sqlite( self ):
 
         new_setup = not( os.path.isfile( 'example.db' ))
-        # connection = sqlite3.connect( "example.db", autocommit=True )
         connection = sqlite3.connect( "example.db", isolation_level=None )
         if new_setup:
             cursor = connection.cursor()

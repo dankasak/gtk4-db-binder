@@ -772,7 +772,7 @@ class Gtk4DbAbstract( object ):
         filter_list = []
         key_values_list = []
         for key in keys_dict:
-            filter_list.append( '{0} = ?'.format( key ) )
+            filter_list.append( self._db_prepare_update_column_fragment( self.fields[ self.column_name_to_number_mapping[ key ] ] , key ) )
             key_values_list.append( keys_dict[ key ] )
         filter_string = " and ".join( filter_list )
 

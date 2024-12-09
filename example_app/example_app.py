@@ -157,14 +157,17 @@ class ExampleApplication( Adw.Application ):
                   , address_line_2      text
                   , city                text
                   , country             text
-                  , postcode            int
+                  , postcode            text
                 );""" )
             addresses = [
-                ( 1, 'Parramatta Road' , None , 'Granville', 'Australia', 2142 )
-              , ( 1, 'Parramatta Road' , None , 'Auburn', 'Australia', None )
-              , ( 2, 'HPPL House', '28-42 Ventnor Avenue', 'West Perth', 'Australia', 6005 )
+                ( 1 , 'Parramatta Road' , None , 'Granville' , 'Australia' , 2142 )
+              , ( 1 , 'Parramatta Road' , None , 'Auburn' , 'Australia' , None )
+              , ( 2 , 'HPPL House', '28-42 Ventnor Avenue' , 'West Perth' , 'Australia' , 6005 )
+              , ( 3 , 'P.O.Box 549' , 'KY1-1602, Corner of Mary Street and Sheddon Road' , 'Grand Cayman' , 'Cayman Islands' , 'KY1-1602' )
+              , ( 4 , 'Hillsong Convention Centre' , '1 Solent Cct' , 'Norwest' , 'Australia' , 2153 )
+              , ( 5 , '2 Holt Street' , None , 'Surry Hills' , 'Australia' , 2010 )
             ]
-            for i in range( 0, 1000 ):
+            for i in range( 0, 1 ):
                 cursor.executemany(
                     """insert into addresses ( customer_id, address_line_1 , address_line_2 , city, country, postcode )
                            values ( ? , ? , ? , ? , ? , ? )"""

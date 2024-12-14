@@ -66,24 +66,45 @@ class GridImage( Gtk.Image , GridWidget ):
 class ForeignKeyBinder( GObject.Object ):
     __gtype_name__ = 'ForeignKeyBinder'
 
-    def __init__( self , keys_list , mapping ):
+    def __init__( self , keys_list , mapping , parent_friendly_table_name ):
 
         super().__init__()
         self._keys_list = keys_list
-        self._keys_dict = {}
+        self._keys_dict_json = '{}'
         self.mapping = mapping
+        self.parent_friendly_table_name = parent_friendly_table_name
         for key in keys_list:
             setattr( self , key , None )
 
     @GObject.Property( type=str )
-    def keys_dict( self ):
-        return self._keys_dict
+    def keys_dict_json( self ):
+        return self._keys_dict_json
 
-    @keys_dict.setter
-    def keys_dict( self , keys_dict ):
-        if self._keys_dict != keys_dict:
-            self._keys_dict = keys_dict
-            self.notify( "keys_dict" )
+    @keys_dict_json.setter
+    def keys_dict_json( self , keys_dict_json ):
+        if self._keys_dict_json != keys_dict_json:
+            self._keys_dict_json = keys_dict_json
+            self.notify( "keys_dict_json" )
+
+
+class KeyValueModel ( GObject.Object ):
+    __gtype_name__ = 'KeyValueModel'
+
+    """A generic key/value model, useful for DropDown widgets"""
+
+    def __init__( self , key , value ):
+        super().__init__()
+
+        self._key = key
+        self._value = value
+
+    @GObject.Property
+    def key( self ):
+        return self._key
+
+    @GObject.Property
+    def value( self ):
+        return self._value
 
 
 class Gtk4DbAbstract( object ):
@@ -106,7 +127,7 @@ class Gtk4DbAbstract( object ):
         if not self.fields:
             no_of_fields = len( self.fieldlist )
             if no_of_fields:
-                if no_of_fields < 8:
+                if no_of_fields < 15:
                     for field in self.fieldlist:
                         self.fields.append(
                             {
@@ -329,7 +350,14 @@ class Gtk4DbAbstract( object ):
 
         foreign_keys = {}
         if self.foreign_key_binder:
-            foreign_keys = json.loads( self.foreign_key_binder.keys_dict )
+            foreign_keys = json.loads( self.foreign_key_binder.keys_dict_json )
+            if not foreign_keys:
+                self.dialog(
+                    title  = "Can't insert yet!"
+                  , type   = "error"
+                  , markup = "This object is bound to a parent [ {0} ], but the parent is not populated, so there are no foreign keys".format( self.foreign_key_binder.parent_friendly_table_name )
+                )
+                return False
 
         new_record_values = []
         for i in self.fieldlist:
@@ -752,15 +780,15 @@ class Gtk4DbAbstract( object ):
             """
             child_keys_list.append( column_mapping['target'] )
 
-        this_foreign_key_binder = child_gtk4_db_binder.create_foreign_key_binder( child_keys_list , column_mapping_list )
+        this_foreign_key_binder = child_gtk4_db_binder.create_foreign_key_binder( child_keys_list , column_mapping_list , self.friendly_table_name )
         self.child_foreign_key_binders.append( this_foreign_key_binder )
 
         if len( self.datasheet.model ):
             self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , this_foreign_key_binder )
 
-    def create_foreign_key_binder( self , keys_list , mapping ):
+    def create_foreign_key_binder( self , keys_list , mapping , parent_friendly_table_name ):
 
-        self.foreign_key_binder = ForeignKeyBinder( keys_list , mapping )
+        self.foreign_key_binder = ForeignKeyBinder( keys_list , mapping , parent_friendly_table_name )
         self.foreign_key_binder.connect( 'notify' , self.handle_parent_foreign_key_update )
         return self.foreign_key_binder
 
@@ -768,7 +796,7 @@ class Gtk4DbAbstract( object ):
 
         """Here we handle a parent binder being updated"""
 
-        keys_dict = json.loads( foreign_key_binder.keys_dict )
+        keys_dict = json.loads( foreign_key_binder.keys_dict_json )
         filter_list = []
         key_values_list = []
         for key in keys_dict:
@@ -780,6 +808,12 @@ class Gtk4DbAbstract( object ):
             where = filter_string
           , bind_values = key_values_list
         )
+
+    def setup_drop_down( self , column_name , sql , bind_values ):
+
+        this_drop_down_model = Gio.ListStore( item_type = KeyValueModel )
+        for n in nodes.keys():
+            this_drop_down_model.append( KeyValueModel( key='this_key' , value='this_value' ) )
 
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
@@ -874,7 +908,9 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
 
             # pre bi-directional binding:
-            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+
+            # MOST RECENTLY DISCONNECTED ... trying to avoid cursor issues
+#            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
 
         elif type == "image":
             image = GridImage( column_name=name )
@@ -1129,6 +1165,87 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
         return column_info
 
 
+class Gtk4SnowflakeAbstract( Gtk4DbAbstract ):
+
+    """Snowflake flavour of Gtk4DbAbstract"""
+
+    def primary_key_info( self , db=None , schema=None , table=None ):
+
+        # TODO - implement
+        cursor = self.connection.cursor()
+
+        sql = """SELECT
+                  a.attname,
+                  format_type(a.atttypid, a.atttypmod) 
+                FROM
+                  pg_attribute a
+                  JOIN (SELECT *, GENERATE_SUBSCRIPTS(indkey, 1) AS indkey_subscript FROM pg_index) AS i
+                    ON
+                      i.indisprimary
+                      AND i.indrelid = a.attrelid
+                      AND a.attnum = i.indkey[i.indkey_subscript]
+                WHERE
+                  a.attrelid = %(table_name)s::regclass
+                ORDER BY
+                  i.indkey_subscript"""
+
+        self.execute( cursor , sql , { "table_name": table } )
+
+        columns = []
+
+        for record in self.fetchrow_dict( cursor ):
+            columns.append( record['attname'] )
+
+        return columns
+
+    def column_names_from_cursor( self , cursor ):
+
+        """This is tragic, but Python's database API is not consistent across database backends
+           ( unlike stable languages like Perl ), so each subclass must define this method to return
+           a list of column names from an active cursor."""
+
+        return [desc[0] for desc in cursor.description]
+
+    def last_insert_id( self , cursor ):
+
+        cursor.execute('SELECT LASTVAL()')
+        return cursor.fetchone()[0]
+
+    def _db_prepare_insert_column_fragment( self , column_definition , column_name ):
+
+        # Prepare a placeholder string for insert statements statements ( usually just a: %s )
+        # Sub-classes can do things like apply formatting or functions, eg Oracle
+        # has to call to_date() for values going into date columns
+
+        if column_definition['type'] == "date" or column_definition['type'] == "timestamp":
+            return "cast( nullif( %s, '' ) as timestamp )"
+        else:
+            return "%s"
+
+    def _db_prepare_update_column_fragment( self , column_definition , column_name ):
+
+        # Each value in our insert/update statements goes through this method.
+        # Sub-classes can do things like apply formatting or functions, eg Oracle
+        # has to call to_date() for values going into date columns
+
+        if column_definition['type'] == "timestamp":
+            return "{0} = cast( nullif( %s , '' ) as timestamp )".format( column_name )
+        else:
+            return "{0} = %s".format( column_name )
+
+    def fetch_column_info( self , cursor ):
+
+        column_info = {}
+        for i in cursor.description:
+            this = { 'name': i.name , 'type_code': i.type_code }
+            if i.type_code == 1114:
+                this['type'] = "timestamp"
+            else:
+                this['type'] = "text"
+            column_info[ i.name ] = this
+        return column_info
+
+
 class Gtk4MySQLAbstract( Gtk4DbAbstract ):
 
     """MySQL flavour of Gtk4DbAbstract"""
@@ -1324,9 +1441,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
               , 'mysql': 'MySQL'
               , 'sqlite3': 'SQLite'
               , 'sqlite': 'SQLite'
+              , 'snowflake': 'Snowflake'
             }
             mod = connection.__class__.__module__.split( '.' , 1 )[0]
-            # print( "Found: [{0}]".format( mod ) )
+            print( "Found: [{0}]".format( mod ) )
             db_type = db_name_map.get( mod )
             target_class = "Gtk4{0}Datasheet".format( db_type )
             if db_type == "Postgres":
@@ -1335,6 +1453,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                 return Gtk4MySQLDatasheet( connection=connection , **kwargs )
             elif db_type == "SQLite":
                 return Gtk4SQLiteDatasheet( connection=connection , **kwargs )
+            elif db_type == "Snowflake":
+                return Gtk4SnowflakeDatasheet( connection=connection , **kwargs )
             else:
                 raise Exception( "Unsupported database type: {0}".format( target_class ) )
 
@@ -1399,7 +1519,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             setattr( self , i , kwargs[i] )
 
         if not len( friendly_table_name ):
-            self.friendly_table_name = self.sql['from']
+            if 'from' in self.sql.keys():
+                self.friendly_table_name = self.sql['from']
+            else:
+                self.friendly_table_name = self.sql['pass_through']
         else:
             self.friendly_table_name = friendly_table_name
 
@@ -1426,6 +1549,16 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         toplevel_widget.connect( 'close_request' , self.on_toplevel_closed )
 
         self.window = toplevel_widget
+
+    def destroy( self ):
+
+        child = self.box.get_first_child()
+        while child:
+            self.box.remove( child )
+            child = self.box.get_next_sibling()
+
+        self.datasheet = None
+        self.widget_setup = False
 
     def get_current_grid_row( self ):
 
@@ -1506,24 +1639,6 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             self.after_query()
 
         return True
-
-    def destroy( self ):
-
-        for set in self.objects_and_signals:
-            set[0].signal_handler_disconnect( set[1] )
-
-        # TODO: push this signal onto our objects_and_signals so we don't have to do this ... but how do we remove 
-        if self.changed_signal:
-            self.treeview.get_model().signal_handler_disconnect( self.changed_signal )
-
-        if self.row_select_signal:
-            self.treeview.get_selection().signal_handler_disconnect( self.row_select_signal )
-
-        self.destroy_recordset_tools()
-
-        if self.box:
-            for i in self.box.get_children():
-                i.destroy()
 
     def apply( self , *args ):
 
@@ -2065,6 +2180,11 @@ class Gtk4SQLiteDatasheet( Gtk4SQLiteAbstract , Gtk4DbDatasheet ):
 
     def __init__( self , read_only=False , auto_apply=False , **kwargs ):
         super( Gtk4SQLiteDatasheet , self ).__init__( read_only=read_only , auto_apply=auto_apply , **kwargs )
+
+class Gtk4SnowflakeDatasheet( Gtk4SQLiteAbstract , Gtk4DbDatasheet ):
+
+    def __init__( self , read_only=False , auto_apply=False , **kwargs ):
+        super( Gtk4SnowflakeDatasheet , self ).__init__( read_only=read_only , auto_apply=auto_apply , **kwargs )
 
 class Gtk4OracleDatasheet( Gtk4OracleAbstract , Gtk4DbDatasheet ):
 

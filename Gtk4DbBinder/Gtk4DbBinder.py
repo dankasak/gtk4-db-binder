@@ -303,8 +303,11 @@ class Gtk4DbAbstract( object ):
         # Fetch primary key(s), but only if we dont have some ( they can be passed in the constructor,
         # or we could have some from a previous query() call )
 
-        if not hasattr( self , 'primary_keys' ) and not self.read_only:
-            self.primary_keys = self.primary_key_info( None , None , self.sql['from'] )
+        if not hasattr( self , 'primary_keys' ):
+            if self.read_only or 'pass_through'] in self.sql.keys():
+                self.primary_keys = []
+            else:
+                self.primary_keys = self.primary_key_info( None , None , self.sql['from'] )
 
         sql = ""
         if 'pass_through' in self.sql.keys():
@@ -2181,7 +2184,7 @@ class Gtk4SQLiteDatasheet( Gtk4SQLiteAbstract , Gtk4DbDatasheet ):
     def __init__( self , read_only=False , auto_apply=False , **kwargs ):
         super( Gtk4SQLiteDatasheet , self ).__init__( read_only=read_only , auto_apply=auto_apply , **kwargs )
 
-class Gtk4SnowflakeDatasheet( Gtk4SQLiteAbstract , Gtk4DbDatasheet ):
+class Gtk4SnowflakeDatasheet( Gtk4SnowflakeAbstract , Gtk4DbDatasheet ):
 
     def __init__( self , read_only=False , auto_apply=False , **kwargs ):
         super( Gtk4SnowflakeDatasheet , self ).__init__( read_only=read_only , auto_apply=auto_apply , **kwargs )

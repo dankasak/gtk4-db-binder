@@ -304,7 +304,7 @@ class Gtk4DbAbstract( object ):
         # or we could have some from a previous query() call )
 
         if not hasattr( self , 'primary_keys' ):
-            if self.read_only or 'pass_through'] in self.sql.keys():
+            if self.read_only or 'pass_through' in self.sql.keys():
                 self.primary_keys = []
             else:
                 self.primary_keys = self.primary_key_info( None , None , self.sql['from'] )
@@ -814,10 +814,40 @@ class Gtk4DbAbstract( object ):
 
     def setup_drop_down( self , column_name , sql , bind_values ):
 
+        cursor = self.connection.cursor()
+        cursor.execute( sql , bind_values )
         this_drop_down_model = Gio.ListStore( item_type = KeyValueModel )
-        for n in nodes.keys():
-            this_drop_down_model.append( KeyValueModel( key='this_key' , value='this_value' ) )
+        for record in cursor:
+            this_drop_down_model.append( KeyValueModel( record[0] , record[1] ) )
+        widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
 
+        # Set up the factory
+        factory = Gtk.SignalListItemFactory()
+        factory.connect( "setup", self.on_drop_down_factory_setup )
+        factory.connect( "bind", self.on_drop_down_factory_bind )
+
+        # Put it all together
+        drop_down = self.builder.get_object( widget_name )
+        drop_down.set_factory( factory )
+        drop_down.set_model( this_drop_down_model )
+
+    def on_drop_down_factory_setup( self , factory , list_item ):
+
+        # Set up the child of the list item; this can be an arbitrarily
+        # complex widget but we use a simple label now
+        label = Gtk.Label()
+        list_item.set_child( label )
+
+    def on_drop_down_factory_bind( self , factory , list_item ):
+
+        # Bind the item in the model to the row widget; again, since
+        # the object in the model can contain multiple properties, and
+        # the list item can contain any arbitrarily complex widget, we
+        # can have very complex rows instead of the simple cell renderer
+        # layouts in GtkComboBox
+        label = list_item.get_child()
+        key_value_object = list_item.get_item()
+        label.set_text( key_value_object.value )
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
@@ -1601,7 +1631,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             keys_dict = {}
             for this_mapping in foreign_key_binding.mapping:
                 keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
-            setattr( foreign_key_binding , 'keys_dict' , json.dumps( keys_dict ) )
+            setattr( foreign_key_binding , 'keys_dict_json' , json.dumps( keys_dict ) )
 
     def _do_query( self ):
 
@@ -1848,7 +1878,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , dont_update_keys=False , auto_incrementing=True , on_apply=False , sw_no_scroll=False , dump_on_error=False
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
-                  , css_provider = None , before_insert = False , on_insert = False ):
+                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {} ):
 
         if recordset_items is None:
             recordset_items = [ "spinner" , "status" , "insert" , "undo" , "delete" , "apply" ]
@@ -1904,6 +1934,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.model_to_widget_bindings = []
         self.child_foreign_key_binders = []
         self.foreign_key_binder = None
+        self.drop_downs = drop_downs
 
         red_frame_css = """
         entry.red-frame {
@@ -1933,6 +1964,11 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         if self.recordset_tools_box:
             self.setup_recordset_tools()
+
+        # self.drop_downs is a dictionary, with keys being column names, and values being a dictionary
+        # defining some sql and bind values to set up the drop down
+        for drop_down in self.drop_downs:
+            self.setup_drop_down( drop_down , self.drop_downs[ sql ] , self.drop_downs[ bind_values ] )
 
         if not self.query():
             return

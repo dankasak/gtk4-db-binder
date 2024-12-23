@@ -917,9 +917,10 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             cvc = Gtk.ColumnViewColumn( title = d['name'] if d['type'] != 'hidden' else '' )
             if 'x_absolute' in d.keys() and d['x_absolute']:
                 cvc.set_fixed_width( d['x_absolute'] )
-            f = Gtk.SignalListItemFactory()
+            `f = Gtk.SignalListItemFactory()
             f.connect( "setup" , self.setup , d['type'] , 1 , -1 , d['name'] )
             f.connect( "bind" , self.bind , d['type'] , d['name'] )
+            f.connect( "unbind" , self.unbind )`
             cvc.set_factory( f )
             self.cv.append_column( cvc )
             d['cvc'] = cvc
@@ -935,7 +936,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             item.set_child( entry )
 
             # pre bi-directional binding:
-            entry.connect( "activate" , self.on_entry_activate )
+#####            entry.connect( "activate" , self.on_entry_activate )
 
             # was commented:
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
@@ -953,8 +954,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             item.set_child( entry )
 
             # pre bi-directional binding:
-            entry.connect( "activate" , self.on_entry_activate )
-            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
+#####            entry.connect( "activate" , self.on_entry_activate )
+#####            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
 
             # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
         else:
@@ -1069,9 +1070,14 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             # If we manage to re-enable bi-directional bindings, we need to
             # remove the custom entry state handling, and add the "bind_transform_to" method back
 
-            grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE
-                                                                  # | GObject.BindingFlags.BIDIRECTIONAL
-                                  , self.bind_transform_to )
+            widget.binding = grid_row.bind_property( column_name
+                                                   , widget
+                                                   , "text"
+                                                   ,   GObject.BindingFlags.SYNC_CREATE
+                                                     | GObject.BindingFlags.BIDIRECTIONAL
+                                                   , self.bind_transform_to
+                                                   , self.bind_transform_from
+                                                   )
 
         elif type == "image":
             grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
@@ -1080,14 +1086,20 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
         widget.model_position = item.get_position()
 
-    def bind_transform_to( self , binding , value ):
+    def bind_transform_from( self , binding , value ):
 
         return '' if value is None else value
 
-    def bind_transform_from( self , binding , value ):
+    def bind_transform_to( self , binding , value ):
 
         # Not in use - will be called if we can re-emable bi-directional bindings
         return None if value == '' else value
+
+    def unbind( self , factory , item ):
+
+        widget = item.get_child()
+        widget.binding.unbind()
+        print( "just unbound {0} with value {1}".format( widget , widget.get_text() ) )
 
     def column_name_to_number( self , column_name ):
 
@@ -2062,6 +2074,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                     #                                  | GObject.BindingFlags.SYNC_CREATE )
                     # )
                     print( "Widget [ {0} ] - Gtk.Calendar is not supported, because it doesn't have a 'date' property".format( widget_name ) )
+                # elif isinstance( widget , Gtk.DropDown ):
+                #     self.model_to_widget_bindings.append(
+                #         this_grid_row.bind_property( column_name , widget , "")
+                #     )
                 else:
                     self.model_to_widget_bindings.append(
                         this_grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.BIDIRECTIONAL

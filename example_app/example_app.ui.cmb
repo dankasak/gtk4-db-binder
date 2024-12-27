@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='UTF-8' standalone='no'?>
 <!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
-<cambalache-project version="0.92.0" target_tk="gtk-4.0">
+<cambalache-project version="0.94.0" target_tk="gtk-4.0">
   <ui>
 	(1,None,"example_app.ui","example_app.ui",None,None,None,None,None,None,None)
   </ui>
@@ -23,7 +23,9 @@
 	(1,33,"GtkCalendar","customer.contract_end_date",32,None,None,None,0,None,None),
 	(1,34,"GtkFrame",None,22,None,None,None,1,None,None),
 	(1,35,"GtkBox","addresses_box",34,None,None,None,0,None,None),
-	(1,36,"GtkImage",None,21,None,None,None,2,None,None)
+	(1,36,"GtkImage",None,21,None,None,None,2,None,None),
+	(1,37,"GtkDropDown","customer.drop_down",21,None,None,None,1,None,None),
+	(1,38,"GtkButton",None,21,None,None,None,3,None,None)
   </object>
   <object_property>
 	(1,1,"GtkWidget","receives-default","True",None,None,None,None,None,None,None,None,None),
@@ -51,6 +53,9 @@
 	(1,33,"GtkWidget","hexpand","True",0,None,None,None,None,None,None,None,None),
 	(1,34,"GtkFrame","label","Addresses",None,None,None,None,None,None,None,None,None),
 	(1,35,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
-	(1,36,"GtkImage","icon-name","security-high",None,None,None,None,None,None,None,None,None)
+	(1,36,"GtkImage","icon-name","security-high-symbolic",None,None,None,None,None,None,None,None,None)
   </object_property>
+  <object_signal>
+	(1,1,38,"GtkButton","clicked","get_drop_down",None,0,0,0,None)
+  </object_signal>
 </cambalache-project>

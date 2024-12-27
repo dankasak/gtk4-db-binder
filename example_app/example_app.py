@@ -3,7 +3,7 @@ import gi , sqlite3 , os
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk , Adw
+from gi.repository import Gtk , Adw, GObject
 from Gtk4DbBinder import Gtk4DbDatasheet, Gtk4DbForm
 
 class ExampleApplication( Adw.Application ):
@@ -14,6 +14,16 @@ class ExampleApplication( Adw.Application ):
 
     def on_activate( self , app ):
 
+        # pos_to_id_map_pspec = GObject.Property(
+        #     type=GObject.TYPE_STRING
+        #   , default=None
+        #   , nick='pos_to_id_map'
+        #   , blurb='pos_to_id_map'
+        #   , flags=GObject.ParamFlags.READWRITE
+        #   , minimum=None
+        #   , maximum=None
+        # )
+        # Gtk.DropDown.install_property( 100 , pos_to_id_map_pspec )
         self.builder = Gtk.Builder( self )
         self.builder.add_from_file( 'example_app.ui' )
         self.example_window = self.builder.get_object('main_window')
@@ -47,7 +57,9 @@ class ExampleApplication( Adw.Application ):
           , fields = [
                 {
                     'name': 'id'
-                  , 'type': 'hidden'
+                  , 'type': 'text'
+                  , 'x_absolute': 120
+                  # , 'type': 'hidden'
                 }
               , {
                     'name': 'customer_id'
@@ -101,6 +113,7 @@ class ExampleApplication( Adw.Application ):
                ]
           , box = self.builder.get_object( 'customer_list_box' )
           , no_auto_tools_box = True
+          , on_row_select = self.on_customer_list_row_select
         )
 
         self.customer_list.bind_to_child(
@@ -175,6 +188,14 @@ class ExampleApplication( Adw.Application ):
             connection.commit()
         return connection
 
+    def on_customer_list_row_select( self , grid_row ):
+
+        self.customer_form.setup_drop_down( "drop_down" , "select id , concat_ws( ' - ' , address_line_1 , address_line_2 ) from addresses where customer_id = ?" , [ grid_row.id ] )
+
+    def get_drop_down( self , button ):
+
+        whatever = self.builder.get_object( 'customer.drop_down' ).get_selected_item()
+        print( whatever )
 
 app = ExampleApplication()
 

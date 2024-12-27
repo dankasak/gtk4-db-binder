@@ -917,10 +917,10 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             cvc = Gtk.ColumnViewColumn( title = d['name'] if d['type'] != 'hidden' else '' )
             if 'x_absolute' in d.keys() and d['x_absolute']:
                 cvc.set_fixed_width( d['x_absolute'] )
-            `f = Gtk.SignalListItemFactory()
+            f = Gtk.SignalListItemFactory()
             f.connect( "setup" , self.setup , d['type'] , 1 , -1 , d['name'] )
             f.connect( "bind" , self.bind , d['type'] , d['name'] )
-            f.connect( "unbind" , self.unbind )`
+            f.connect( "unbind" , self.unbind )
             cvc.set_factory( f )
             self.cv.append_column( cvc )
             d['cvc'] = cvc

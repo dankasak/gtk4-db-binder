@@ -675,18 +675,18 @@ class Gtk4DbAbstract( object ):
                     "class " + unique_class_name + "( GObject.Object ):\n    __gtype_name__ = '" + unique_class_name + \
                     "'\n\n" \
                     "    def __init__( self , track , record ):\n" \
-                    "        \n" \
+                    "\n" \
                     "        super().__init__()\n" \
                     "        self._track = track\n" \
                     "        self._row_state = '{0}'\n" \
-                    "        \n" \
+                    "\n" \
                     "        # Unpack record into class attributes ... and convert NULL / None to ''\n".format( UNCHANGED )
 
         access_methods = [
             "    @GObject.Property(type=str)\n" \
             "    def row_state( self ):\n" \
             "        return self._row_state\n" \
-            "    \n" \
+            "\n" \
             "    @row_state.setter\n" \
             "    def row_state( self , row_state ):\n" \
             "        if self._row_state != row_state:\n" \
@@ -710,16 +710,16 @@ class Gtk4DbAbstract( object ):
                 "    @GObject.Property(type=str)\n" \
                 "    def {0}( self ):\n" \
                 "        return self._{0}\n" \
-                "    \n" \
+                "\n" \
                 "    @{0}.setter\n" \
                 "    def {0}( self , {0} ):\n" \
-                "        print( \"In [{0}].setter() ... current: [{3}] ... new: [{4}]\".format( {0} , self._{0} ) )\n" \
+                "#        print( \"In [{0}].setter() ... current: [{3}] ... new: [{4}]\".format( {0} , self._{0} ) )\n" \
                 "        if str( self._{0} ) != {0}:\n" \
-                "            print( \"[{0}] changed\" )\n"
+                "#            print( \"[{0}] changed\" )\n"
                 "            self._{0} = {0}\n" \
                 "            self.notify( \"{0}\" )\n" \
                 "            if self.row_state == '{1}':\n" \
-                "                print( \"grid row state ==> changed\" )\n" \
+                "#                print( \"grid row state ==> changed\" )\n" \
                 "                self.row_state = '{2}'\n" \
                 "                self.notify( \"row_state\" )\n    ".format(
                     column_definitions[ i ]['name'] # 0
@@ -904,24 +904,25 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         # TODO: What we probably want is selecting a row when it's clicked in ( and not just in the record status image )
 
         # A column for the row_state ( # )
-        cvc = Gtk.ColumnViewColumn( title = '#' )
-        cvc.set_fixed_width( 50 )
+
         f = Gtk.SignalListItemFactory()
         f.connect( "setup" , self.setup , 'image' , 1 , -1 , 'row_state' )
         f.connect( "bind" , self.bind , 'image' , 'row_state' )
-        cvc.set_factory( f )
+        f.connect( "unbind" , self.unbind )
+
+        cvc = Gtk.ColumnViewColumn( title = '#' , factory = f )
+        cvc.set_fixed_width( 50 )
         self.cv.append_column( cvc )
         self.row_state_column = cvc
 
         for d in column_definitions:
-            cvc = Gtk.ColumnViewColumn( title = d['name'] if d['type'] != 'hidden' else '' )
-            if 'x_absolute' in d.keys() and d['x_absolute']:
-                cvc.set_fixed_width( d['x_absolute'] )
             f = Gtk.SignalListItemFactory()
             f.connect( "setup" , self.setup , d['type'] , 1 , -1 , d['name'] )
             f.connect( "bind" , self.bind , d['type'] , d['name'] )
             f.connect( "unbind" , self.unbind )
-            cvc.set_factory( f )
+            cvc = Gtk.ColumnViewColumn( title = d['name'] if d['type'] != 'hidden' else '' , factory = f )
+            if 'x_absolute' in d.keys() and d['x_absolute']:
+                cvc.set_fixed_width( d['x_absolute'] )
             self.cv.append_column( cvc )
             d['cvc'] = cvc
 
@@ -930,34 +931,20 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
     def setup( self , factory , item , type , xalign , chars , name ):
         if type == "label":
             label = GridLabel( xalign=xalign , width_chars=chars , ellipsize=Pango.EllipsizeMode.END , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+            label._binding = None
             item.set_child( label )
         elif type == "text" or type == "date" or type == "timestamp":
             entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+            entry._binding = None
             item.set_child( entry )
-
-            # pre bi-directional binding:
-#####            entry.connect( "activate" , self.on_entry_activate )
-
-            # was commented:
-            # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
-
-            # pre bi-directional binding:
-
-            # MOST RECENTLY DISCONNECTED ... trying to avoid cursor issues
-#            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
-
         elif type == "image":
             image = GridImage( column_name=name )
+            image._binding = None
             item.set_child( image )
         elif type == 'hidden':
             entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+            entry._binding = None
             item.set_child( entry )
-
-            # pre bi-directional binding:
-#####            entry.connect( "activate" , self.on_entry_activate )
-#####            entry.connect( "state-flags-changed" , self.on_entry_move_focus )
-
-            # entry.connect( "notify::has-focus" , self.on_entry_move_focus )
         else:
             raise Exception( "Unknown type: {0}".format( type ) )
 
@@ -989,7 +976,6 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
         self.cv_width = total_columnview_width
 
-        # print( "Total Width: {0}".format( total_columnview_width ) )
         available_width = total_columnview_width
         # subtract the width of the row state column
         available_width = available_width - self.row_state_column.get_fixed_width()
@@ -1010,49 +996,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
                     this_width = 0
                 elif 'x_percent' in d.keys():
                     this_width = available_width / ( 100 / d['x_percent'] )
-                  # print( " column {0} ==> width {1}".format( d['name'] , this_width ) )
                 d['current_width'] = this_width
                 d['cvc'].set_fixed_width( this_width )
-
-    def on_entry_move_focus( self , entry , flags: Gtk.StateFlags ):
-
-        # def on_entry_move_focus( self , entry , has_focus ):
-
-        # TODO: This needs some serious work, which requires an understanding of what's going on with flags.
-        # TODO: For this to work properly, we need whatever method we use to detect "leaving the entry" to
-        # TODO: NOT make it impossible to click in the entry part-way through some existing text.
-        # This is disabled currently - see above setup() ...
-        # More info: https://discourse.gnome.org/t/matching-gtk-stateflags-in-python/14682
-
-        # print( "\n{0}".format( entry.column_name ) )
-        if flags.FOCUS_WITHIN & flags:
-            # print( "has focus" )
-            self.on_entry_activate( entry )
-        # else:
-        #     print( "does NOT have focus" )
-            # self.on_entry_activate( entry )
-
-        # When flag handling disabled:
-        # print( "\n{0}:{1}".format( entry.column_name , has_focus.flags ) )
-        # if bool( has_focus ):
-        #     print( "has focus" )
-        # else:
-        #     print( "does NOT have focus" )
-        #     self.on_entry_activate( entry )
-
-    def on_entry_activate( self , entry ):
-
-        # single_selection = self.cv.get_model()
-        position = entry.model_position
-        grid_row = self.single_selection[ position ]
-
-        # Here we try to avoid replacing NULL ( None ) values in the model with the empty string,
-        # in cases where someone's just clicked in an entry, but not changed anything.
-        model_value = getattr( grid_row , entry.column_name )
-        if model_value is None and entry.get_text() == '':
-            return
-        else:
-            setattr( grid_row , entry.column_name , entry.get_text() )
 
     def bind( self , factory , item , type , column_name ):
 
@@ -1060,46 +1005,32 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         grid_row = item.get_item()
 
         if type == "label":
-            grid_row.bind_property( column_name , widget , "label" , GObject.BindingFlags.SYNC_CREATE )
+            widget._binding = grid_row.bind_property( column_name , widget , "label" , GObject.BindingFlags.SYNC_CREATE )
         elif type == "text" or type == "date" or type == "timestamp" or type == 'hidden':
-
-            # grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.SYNC_CREATE )
-
-            # Use bi-directional binding causes 100% cpu usage and
-            # lockups when using lists larger than a few hundred rows :(
-            # If we manage to re-enable bi-directional bindings, we need to
-            # remove the custom entry state handling, and add the "bind_transform_to" method back
-
-            widget.binding = grid_row.bind_property( column_name
+            widget._binding = grid_row.bind_property( column_name
                                                    , widget
                                                    , "text"
                                                    ,   GObject.BindingFlags.SYNC_CREATE
                                                      | GObject.BindingFlags.BIDIRECTIONAL
-                                                   , self.bind_transform_to
-                                                   , self.bind_transform_from
+                                                   , self.bind_transform
                                                    )
-
         elif type == "image":
-            grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
+            widget._binding = grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
         else:
             raise Exception( "Unknown type {0}".format( type ) )
 
         widget.model_position = item.get_position()
 
-    def bind_transform_from( self , binding , value ):
+    def bind_transform( self , binding , value ):
 
         return '' if value is None else value
-
-    def bind_transform_to( self , binding , value ):
-
-        # Not in use - will be called if we can re-emable bi-directional bindings
-        return None if value == '' else value
 
     def unbind( self , factory , item ):
 
         widget = item.get_child()
-        widget.binding.unbind()
-        print( "just unbound {0} with value {1}".format( widget , widget.get_text() ) )
+        if widget._binding:
+            widget._binding.unbind()
+            widget._binding = None
 
     def column_name_to_number( self , column_name ):
 

@@ -831,6 +831,8 @@ class Gtk4DbAbstract( object ):
         drop_down.set_factory( factory )
         drop_down.set_model( this_drop_down_model )
 
+        self.drop_down_models[ column_name ] = this_drop_down_model
+
     def on_drop_down_factory_setup( self , factory , list_item ):
 
         # Set up the child of the list item; this can be an arbitrarily
@@ -1874,7 +1876,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.spinner = None
         self.widget_prefix = widget_prefix
         self.css_provider = css_provider
-        self.model_to_widget_bindings = []
+        self.model_to_widget_bindings = {}
+        self.drop_down_models = {}
         self.child_foreign_key_binders = []
         self.foreign_key_binder = None
         self.drop_downs = drop_downs
@@ -1911,7 +1914,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         # self.drop_downs is a dictionary, with keys being column names, and values being a dictionary
         # defining some sql and bind values to set up the drop down
         for drop_down in self.drop_downs:
-            self.setup_drop_down( drop_down , self.drop_downs[ sql ] , self.drop_downs[ bind_values ] )
+            self.setup_drop_down( drop_down , self.drop_downs[ drop_down ][ 'sql' ] , self.drop_downs[ drop_down ][ 'bind_values' ] )
 
         if not self.query():
             return
@@ -1980,8 +1983,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
     def bind_model_to_widgets( self ):
 
-        for binding in self.model_to_widget_bindings:
-            binding.unbind()
+        for column in self.model_to_widget_bindings.keys():
+            self.model_to_widget_bindings[ column ].unbind()
 
         this_grid_row = self.model[ self.position ]
 
@@ -2005,17 +2008,41 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                     #                                  | GObject.BindingFlags.SYNC_CREATE )
                     # )
                     print( "Widget [ {0} ] - Gtk.Calendar is not supported, because it doesn't have a 'date' property".format( widget_name ) )
-                # elif isinstance( widget , Gtk.DropDown ):
-                #     self.model_to_widget_bindings.append(
-                #         this_grid_row.bind_property( column_name , widget , "")
-                #     )
+                elif isinstance( widget , Gtk.DropDown ):
+                    self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
+                                                                       column_name , widget , "selected"
+                                                                     , GObject.BindingFlags.BIDIRECTIONAL
+                                                                     | GObject.BindingFlags.SYNC_CREATE
+                                                                     , self.bind_dropdown_transform_to
+                                                                     , self.bind_dropdown_transform_from
+                                                                     , column_name
+                                                                   )
                 else:
-                    self.model_to_widget_bindings.append(
-                        this_grid_row.bind_property( column_name , widget , "text" , GObject.BindingFlags.BIDIRECTIONAL
-                                                                                   | GObject.BindingFlags.SYNC_CREATE
-                                                   , self.bind_transform_to )
-                    )
+                    self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
+                                                                       column_name , widget , "text"
+                                                                     , GObject.BindingFlags.BIDIRECTIONAL
+                                                                     | GObject.BindingFlags.SYNC_CREATE
+                                                                     , self.bind_transform_to )
                     signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
+
+    def bind_dropdown_transform_to( self , binding , value , column_name ):
+
+        # Here we're transforming from the value in the model to the dropdown's "selected" position
+        model = self.drop_down_models[ column_name ]
+        position = 0
+        for row in model:
+            if str( row.key ) == str( value ):
+                return position
+            position = position + 1
+        return None
+
+    def bind_dropdown_transform_from( self , binding , selected_position , column_name ):
+
+        # Here we're transforming from the dropdown's "selected" position to a value
+        model = self.drop_down_models[ column_name ]
+        row = model[ selected_position ]
+        value = row.key
+        return value
 
     def bind_transform_to( self , binding , value ):
 

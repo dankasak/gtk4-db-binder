@@ -49,6 +49,13 @@ class GridEntry( Gtk.Entry , GridWidget ):
         super().__init__( **kwargs )
 
 
+class GridDropDown( Gtk.DropDown , GridWidget ):
+
+    def __init__( self , **kwargs ):
+
+        super().__init__( **kwargs )
+
+
 class GridLabel( Gtk.Label , GridWidget ):
 
     def __init__( self , **kwargs ):
@@ -812,26 +819,20 @@ class Gtk4DbAbstract( object ):
           , bind_values = key_values_list
         )
 
-    def setup_drop_down( self , column_name , sql , bind_values ):
+    def setup_drop_down_factory_and_model( self , column_name , sql , bind_values ):
 
         cursor = self.connection.cursor()
         cursor.execute( sql , bind_values )
-        this_drop_down_model = Gio.ListStore( item_type = KeyValueModel )
+        model = Gio.ListStore( item_type = KeyValueModel )
         for record in cursor:
-            this_drop_down_model.append( KeyValueModel( record[0] , record[1] ) )
-        widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
+            model.append( KeyValueModel( record[0] , record[1] ) )
 
         # Set up the factory
         factory = Gtk.SignalListItemFactory()
         factory.connect( "setup", self.on_drop_down_factory_setup )
         factory.connect( "bind", self.on_drop_down_factory_bind )
 
-        # Put it all together
-        drop_down = self.builder.get_object( widget_name )
-        drop_down.set_factory( factory )
-        drop_down.set_model( this_drop_down_model )
-
-        self.drop_down_models[ column_name ] = this_drop_down_model
+        return factory , model
 
     def on_drop_down_factory_setup( self , factory , list_item ):
 
@@ -851,9 +852,28 @@ class Gtk4DbAbstract( object ):
         key_value_object = list_item.get_item()
         label.set_text( key_value_object.value )
 
+    def bind_dropdown_transform_to( self , binding , value , column_name ):
+
+        # Here we're transforming from the value in the model to the dropdown's "selected" position
+        model = self.drop_down_models[ column_name ]
+        position = 0
+        for row in model:
+            if str( row.key ) == str( value ):
+                return position
+            position = position + 1
+        return None
+
+    def bind_dropdown_transform_from( self , binding , selected_position , column_name ):
+
+        # Here we're transforming from the dropdown's "selected" position to a value
+        model = self.drop_down_models[ column_name ]
+        row = model[ selected_position ]
+        value = row.key
+        return value
+
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
-    def __init__( self , column_definitions , data ):
+    def __init__( self , column_definitions , data , drop_downs ):
 
         super().__init__()
 
@@ -861,6 +881,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         self.set_vexpand( True )
         self.grid_row_class = None
         self.cv_width = 0
+        self.drop_downs = drop_downs
+        self.drop_down_models = {}
         self.setup_columns( column_definitions )
         self.model = self.generate_model( column_definitions , data )
         self.single_selection = Gtk.SingleSelection( model = self.model )
@@ -885,6 +907,42 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         # self.connect( 'size-allocate' , self.on_container_size_allocate )
         # self.notify( "default-width" ).connect( self.on_container_size_allocate )
         GLib.timeout_add( 200 , self.queue_idle_resize_columns )
+
+    def queue_idle_resize_columns( self ):
+
+        GLib.idle_add( self.idle_resize_columns )
+        return True
+
+    def idle_resize_columns( self ):
+
+        total_columnview_width = self.cv.get_width()
+        if total_columnview_width == self.cv_width:
+            return False
+
+        self.cv_width = total_columnview_width
+
+        available_width = total_columnview_width
+        # subtract the width of the row state column
+        available_width = available_width - self.row_state_column.get_fixed_width()
+
+        # Loop over column definitions and subtract fixed-with columns
+        for d in self._column_definitions:
+            if 'x_absolute' in d.keys():
+                available_width = available_width - d['x_absolute']
+
+        # Now allocate the remaining space
+        for d in self._column_definitions:
+            if 'x_absolute' not in d.keys():
+                if 'current_width' in d.keys():
+                    this_width = d['current_width']
+                else:
+                    this_width = 0
+                if d['type'] == 'hidden':
+                    this_width = 0
+                elif 'x_percent' in d.keys():
+                    this_width = available_width / ( 100 / d['x_percent'] )
+                d['current_width'] = this_width
+                d['cvc'].set_fixed_width( this_width )
 
     def _add_widget_styling( self , widget ):
         if self.css_provider:
@@ -931,75 +989,20 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         self._column_definitions = column_definitions
 
     def setup( self , factory , item , type , xalign , chars , name ):
+
         if type == "label":
-            label = GridLabel( xalign=xalign , width_chars=chars , ellipsize=Pango.EllipsizeMode.END , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
-            label._binding = None
-            item.set_child( label )
-        elif type == "text" or type == "date" or type == "timestamp":
-            entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
-            entry._binding = None
-            item.set_child( entry )
+            widget = GridLabel( xalign=xalign , width_chars=chars , ellipsize=Pango.EllipsizeMode.END , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+        elif type == "text" or type == "date" or type == "timestamp" or type == "hidden":
+            widget = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+        elif type == "dropdown":
+            widget = GridDropDown( valign=Gtk.Align.FILL , vexpand=True , column_name=name )
         elif type == "image":
-            image = GridImage( column_name=name )
-            image._binding = None
-            item.set_child( image )
-        elif type == 'hidden':
-            entry = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
-            entry._binding = None
-            item.set_child( entry )
+            widget = GridImage( column_name=name )
         else:
             raise Exception( "Unknown type: {0}".format( type ) )
 
-    # def do_size_allocate( self, width: int, height: int, baseline: int ) -> None:
-    #
-    #     print( "Total Width: {0}".format( width ) )
-    #     for d in self._column_definitions:
-    #         if d['x_percent']:
-    #             this_width = width / ( 100 / d['x_percent'] )
-    #             print( " column {0} ==> width {1}".format( d['name'] , this_width ) )
-    #             d['cvc'].set_fixed_width( width / ( 100 / d['x_percent'] ) )
-    #     super().do_size_allocate( self , width , height , baseline )
-
-    # def on_container_size_allocate( self, width: int, height: int, baseline: int ):
-    #
-    #     super().do_size_allocate( self , width , height , baseline )
-    #     GLib.idle_add( self.idle_resize_columns , width, height, baseline )
-
-    def queue_idle_resize_columns( self ):
-
-        GLib.idle_add( self.idle_resize_columns )
-        return True
-
-    def idle_resize_columns( self ):
-
-        total_columnview_width = self.cv.get_width()
-        if total_columnview_width == self.cv_width:
-            return False
-
-        self.cv_width = total_columnview_width
-
-        available_width = total_columnview_width
-        # subtract the width of the row state column
-        available_width = available_width - self.row_state_column.get_fixed_width()
-
-        # Loop over column definitions and subtract fixed-with columns
-        for d in self._column_definitions:
-            if 'x_absolute' in d.keys():
-                available_width = available_width - d['x_absolute']
-
-        # Now allocate the remaining space
-        for d in self._column_definitions:
-            if 'x_absolute' not in d.keys():
-                if 'current_width' in d.keys():
-                    this_width = d['current_width']
-                else:
-                    this_width = 0
-                if d['type'] == 'hidden':
-                    this_width = 0
-                elif 'x_percent' in d.keys():
-                    this_width = available_width / ( 100 / d['x_percent'] )
-                d['current_width'] = this_width
-                d['cvc'].set_fixed_width( this_width )
+        widget._binding = None
+        item.set_child( widget )
 
     def bind( self , factory , item , type , column_name ):
 
@@ -1010,12 +1013,28 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget._binding = grid_row.bind_property( column_name , widget , "label" , GObject.BindingFlags.SYNC_CREATE )
         elif type == "text" or type == "date" or type == "timestamp" or type == 'hidden':
             widget._binding = grid_row.bind_property( column_name
-                                                   , widget
-                                                   , "text"
-                                                   ,   GObject.BindingFlags.SYNC_CREATE
+                                                    , widget
+                                                    , "text"
+                                                    ,  GObject.BindingFlags.SYNC_CREATE
                                                      | GObject.BindingFlags.BIDIRECTIONAL
-                                                   , self.bind_transform
-                                                   )
+                                                    , self.bind_transform
+                                                    )
+        elif type == "dropdown":
+            factory = self.drop_downs[ column_name ]['factory']
+            model = self.drop_downs[ column_name ]['model']
+            self.drop_down_models[ column_name ] = model
+            # model = self.drop_down_models[ column_name ]
+            widget.set_factory( factory )
+            widget.set_model( model )
+            widget._binding = grid_row.bind_property( column_name
+                                                    , widget
+                                                    , "selected"
+                                                    ,  GObject.BindingFlags.SYNC_CREATE
+                                                    | GObject.BindingFlags.BIDIRECTIONAL
+                                                    , self.bind_dropdown_transform_to
+                                                    , self.bind_dropdown_transform_from
+                                                    , column_name
+                                                    )
         elif type == "image":
             widget._binding = grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
         else:
@@ -1436,12 +1455,13 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             else:
                 raise Exception( "Unsupported database type: {0}".format( target_class ) )
 
-    def __init__(self, read_only=False, auto_apply=False, data_lock_field = None
+    def __init__( self, read_only=False, auto_apply=False, data_lock_field = None
                  , dont_update_keys=False, auto_incrementing=True, on_apply=False
                  , sw_no_scroll=False, dump_on_error=False, no_auto_tools_box=False
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
                  , quiet=False, recordset_items=None, on_row_select=None
-                 , before_insert=None , on_insert=None , **kwargs):
+                 , before_insert=None, on_insert=None
+                 , drop_downs={}, **kwargs ):
 
         if recordset_items is None:
             recordset_items = ["insert", "undo", "delete", "apply", "data_to_csv"]
@@ -1492,9 +1512,23 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.on_insert = on_insert
         self.child_foreign_key_binders = []
         self.foreign_key_binder = None
+        self.drop_downs = drop_downs
+        self.drop_down_models = {}
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
+
+        for drop_down in drop_downs:
+            factory , model = self.setup_drop_down_factory_and_model(
+                drop_down
+              , drop_downs[ drop_down ]['sql']
+              , drop_downs[ drop_down ]['bind_values']
+            )
+            drop_downs[ drop_down ]['model'] = model
+            self.drop_down_models[ drop_down ] = model
+            drop_downs[ drop_down ]['factory'] = factory
+
+        self.drop_downs = drop_downs
 
         if not len( friendly_table_name ):
             if 'from' in self.sql.keys():
@@ -1593,7 +1627,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         if not self.setup_fields():
             return None
 
-        self.datasheet = DatasheetWidget( self.fields , cursor )
+        self.datasheet = DatasheetWidget( self.fields , cursor , self.drop_downs )
 
         # We need these back at this level, and not in the DatasheetWidget, for things to work in a generic way
         self.grid_row_class = self.datasheet.grid_row_class
@@ -1927,6 +1961,15 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                 self.window = widget
                 return
 
+    def setup_drop_down( self , column_name , sql , bind_values ):
+
+        factory , model = self.setup_drop_down_factory_and_model( column_name , sql , bind_values )
+        widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
+        drop_down = self.builder.get_object( widget_name )
+        drop_down.set_factory( factory )
+        drop_down.set_model( model )
+
+        self.drop_down_models[ column_name ] = model
 
     def get( self , column_name ):
 
@@ -2024,25 +2067,6 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                                                                      | GObject.BindingFlags.SYNC_CREATE
                                                                      , self.bind_transform_to )
                     signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
-
-    def bind_dropdown_transform_to( self , binding , value , column_name ):
-
-        # Here we're transforming from the value in the model to the dropdown's "selected" position
-        model = self.drop_down_models[ column_name ]
-        position = 0
-        for row in model:
-            if str( row.key ) == str( value ):
-                return position
-            position = position + 1
-        return None
-
-    def bind_dropdown_transform_from( self , binding , selected_position , column_name ):
-
-        # Here we're transforming from the dropdown's "selected" position to a value
-        model = self.drop_down_models[ column_name ]
-        row = model[ selected_position ]
-        value = row.key
-        return value
 
     def bind_transform_to( self , binding , value ):
 

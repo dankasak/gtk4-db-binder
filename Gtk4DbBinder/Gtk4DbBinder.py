@@ -819,7 +819,7 @@ class Gtk4DbAbstract( object ):
           , bind_values = key_values_list
         )
 
-    def setup_drop_down_factory_and_model( self , column_name , sql , bind_values ):
+    def setup_drop_down_factory_and_model( self , sql , bind_values ):
 
         cursor = self.connection.cursor()
         cursor.execute( sql , bind_values )
@@ -1520,8 +1520,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         for drop_down in drop_downs:
             factory , model = self.setup_drop_down_factory_and_model(
-                drop_down
-              , drop_downs[ drop_down ]['sql']
+                drop_downs[ drop_down ]['sql']
               , drop_downs[ drop_down ]['bind_values']
             )
             drop_downs[ drop_down ]['model'] = model
@@ -1963,21 +1962,28 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
     def setup_drop_down( self , column_name , sql , bind_values ):
 
-        factory , model = self.setup_drop_down_factory_and_model( column_name , sql , bind_values )
-        widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
-        drop_down = self.builder.get_object( widget_name )
+        factory , model = self.setup_drop_down_factory_and_model( sql , bind_values )
+        drop_down = self.get_widget( column_name )
         drop_down.set_factory( factory )
         drop_down.set_model( model )
-
         self.drop_down_models[ column_name ] = model
+
+    def get_widget( self , column_name , missing_is_fatal = True ):
+
+        widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
+        widget = self.builder.get_object( widget_name )
+        if widget is None and missing_is_fatal:
+            raise Exception( "get_widget() called with column name [{0}] which resolved to [{1}]" \
+                             " but none was found in the Gtk.Builder object".format( column_name , widget_name ) )
+        return widget
 
     def get( self , column_name ):
 
-        return getattr( grid_row , column_name )
+        return getattr( self.model , column_name )
 
     def set( self , column_name , value ):
 
-        setattr( grid_row , column_name , value )
+        setattr( self.model , column_name , value )
 
     def _do_query( self ):
 
@@ -2037,8 +2043,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         # - bind via bind_property() method, ie:
         #   https://stackoverflow.com/questions/67763050/how-to-do-2-way-data-binding-using-pythonpygobjects-gobject-bind-property-func
         for column_name in self.fieldlist:
-            widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + column_name
-            widget = self.builder.get_object( widget_name )
+            widget = self.get_widget( column_name )
             if widget:
                 if isinstance( widget , Gtk.Calendar ):
                     # This won't work, as Gtk.Calendar doesn't have a fucking 'date' property.
@@ -2050,7 +2055,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                     #     this_grid_row.bind_property( column_name , widget , "date" , GObject.BindingFlags.BIDIRECTIONAL
                     #                                  | GObject.BindingFlags.SYNC_CREATE )
                     # )
-                    print( "Widget [ {0} ] - Gtk.Calendar is not supported, because it doesn't have a 'date' property".format( widget_name ) )
+                    print( "Widget [ {0} ] - Gtk.Calendar is not supported, because it doesn't have a 'date' property".format( column_name ) )
                 elif isinstance( widget , Gtk.DropDown ):
                     self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
                                                                        column_name , widget , "selected"
@@ -2077,8 +2082,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         if notify_topic != 'row-state':
             # Assume the topic is a column name at this point
             current_value = getattr( grid_row , notify_topic )
-            widget_name = ( self.widget_prefix if self.widget_prefix else '' ) + notify_topic
-            widget = self.builder.get_object( widget_name )
+            widget = self.get_widget( notify_topic )
             if current_value is not None:
                 widget.add_css_class( 'red-frame' )
             else:
@@ -2113,8 +2117,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         if self.read_only:
             self.dialog(
                 title="Read Only!"
-                , type="warning"
-                , text="Datasheet is open in read-only mode!"
+              , type="warning"
+              , text="Datasheet is open in read-only mode!"
             )
             return False
 

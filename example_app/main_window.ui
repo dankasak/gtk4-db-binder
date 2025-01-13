@@ -19,19 +19,6 @@
             <child>
               <object class="GtkBox" id="customer_list_box">
                 <property name="orientation">vertical</property>
-                <child>
-                  <object class="GtkDropDown" id="customer.drop_down"/>
-                </child>
-                <child>
-                  <object class="GtkImage">
-                    <property name="icon-name">security-high-symbolic</property>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkButton">
-                    <signal name="clicked" handler="get_drop_down"/>
-                  </object>
-                </child>
               </object>
             </child>
           </object>
@@ -64,6 +51,14 @@
                         <property name="label">Name</property>
                         <child>
                           <object class="GtkEntry" id="customer.name"/>
+                        </child>
+                        <child>
+                          <object class="GtkFrame">
+                            <property name="label">Business Type</property>
+                            <child>
+                              <object class="GtkDropDown" id="customer.business_type_id"/>
+                            </child>
+                          </object>
                         </child>
                       </object>
                     </child>

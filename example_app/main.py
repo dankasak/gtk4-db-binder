@@ -84,6 +84,7 @@ class ExampleApplication( Adw.Application ):
             'application': self
           , 'connection': connection
         }
+
         main_window = Main_Window( globals )
 
 app = ExampleApplication()

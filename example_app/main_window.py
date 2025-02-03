@@ -5,6 +5,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Gtk , Adw, GObject
 from Gtk4DbBinder import Gtk4DbDatasheet, Gtk4DbForm
+from states_window import States_Window
 
 class Main_Window( object ):
 
@@ -74,7 +75,7 @@ class Main_Window( object ):
                 }
               , {
                     'name': 'state'
-                  , 'type': 'dropdown'
+                  , 'type': 'drop_down'
                   , 'x_absolute': 120
                 }
               , {
@@ -139,3 +140,9 @@ class Main_Window( object ):
         )
 
         self.example_window.present()
+
+    def on_manage_states_clicked( self , button ):
+
+        states = States_Window(
+            self.globals
+        )

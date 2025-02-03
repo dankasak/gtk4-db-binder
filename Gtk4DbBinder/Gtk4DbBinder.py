@@ -520,8 +520,7 @@ class Gtk4DbAbstract( object ):
         values = []
 
         for column_name in self.fieldlist:
-            # SQL Server doesn't allow updates of primary keys
-            # TODO Fix for non-auto_increment primary keys
+            # SQL Server, amongst others, doesn't allow updates of primary keys
             column_no = self.column_from_sql_name( column_name )
             if (    column_name in self.primary_keys
                     and self.dont_update_keys
@@ -544,7 +543,9 @@ class Gtk4DbAbstract( object ):
         for primary_key_item in self.primary_keys:
             column_no = self.column_from_sql_name( primary_key_item )
             placeholder_list.append( self._db_prepare_update_column_fragment( self.fields[ column_no ] , primary_key_item ) )
-            values.append( getattr( row , primary_key_item ) )
+#            values.append( getattr( row , primary_key_item ) )
+            # For databases that support updating the primary key, we need to use the *original* value in the filter
+            values.append( row.get_original_value( primary_key_item ) )
         sql = sql + " and ".join( placeholder_list )
 
         try:
@@ -553,9 +554,9 @@ class Gtk4DbAbstract( object ):
         except Exception as e:
             print( "{0}".format( e ) )
             self.dialog(
-                title="Error deleting record!"
+                title="Error updating record!"
               , type="error"
-              , markup="<b>Database server says:</b>\n\n{0}".format( e )
+              , markup="<b>Database server says:</b>\n\n{0}\n\nSQL:\n{1}\n\nValues:\n{2}".format( e , sql , values )
             )
             if self.dump_on_error:
                 print ( "SQL was:\n{0}".format( sql ) )
@@ -685,9 +686,11 @@ class Gtk4DbAbstract( object ):
                     "\n" \
                     "        super().__init__()\n" \
                     "        self._track = track\n" \
-                    "        self._row_state = '{0}'\n" \
+                    "        self._row_state = '{0}'\n".format( UNCHANGED )
+
+        class_def = class_def + "        self._original_values_dict = {} # mainly useful for DBs that allow updates to primary keys\n" \
                     "\n" \
-                    "        # Unpack record into class attributes ... and convert NULL / None to ''\n".format( UNCHANGED )
+                    "        # Unpack record into class attributes ... and convert NULL / None to ''\n"
 
         access_methods = [
             "    @GObject.Property(type=str)\n" \
@@ -739,7 +742,16 @@ class Gtk4DbAbstract( object ):
         class_def = class_def + "\n" + "\n".join( access_methods )
 
         class_def = class_def + "\n    def track( self ):\n" \
-            "        return self._track\n"
+            "        return self._track\n" \
+            "\n" \
+            "    def set_original_value( self , column , value ):\n" \
+            "        self._original_values_dict[ column ] = value\n" \
+            "\n" \
+            "    def get_original_value( self , column ):\n" \
+            "        if column in self._original_values_dict.keys():\n" \
+            "            return self._original_values_dict[ column ]\n" \
+            "        else:\n" \
+            "            return getattr( self , column )\n"
 
         # print( "Class definition:\n{0}".format( class_def ) )
         tmp_class_path = "/tmp/{0}.py".format( unique_class_name )
@@ -994,7 +1006,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget = GridLabel( xalign=xalign , width_chars=chars , ellipsize=Pango.EllipsizeMode.END , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
         elif type == "text" or type == "date" or type == "timestamp" or type == "hidden":
             widget = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
-        elif type == "dropdown":
+        elif type == "drop_down":
             widget = GridDropDown( valign=Gtk.Align.FILL , vexpand=True , column_name=name )
         elif type == "image":
             widget = GridImage( column_name=name )
@@ -1019,7 +1031,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
                                                      | GObject.BindingFlags.BIDIRECTIONAL
                                                     , self.bind_transform
                                                     )
-        elif type == "dropdown":
+        elif type == "drop_down":
             factory = self.drop_downs[ column_name ]['factory']
             model = self.drop_downs[ column_name ]['model']
             self.drop_down_models[ column_name ] = model

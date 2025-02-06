@@ -36,6 +36,20 @@ class ExampleApplication( Adw.Application ):
                 """insert into business_types ( business_type ) values ( ? )"""
               , customer_types )
             cursor.execute( """
+                create table states (
+                    id                   integer           primary key
+                  , state                text not null
+                );""" )
+            states = [
+                ( 'NSW', )
+              , ( 'WA', )
+              , ( 'CA', )
+            ]
+            cursor.executemany(
+                """insert into states ( state ) values ( ? )"""
+              , states
+            )
+            cursor.execute( """
                 create table customers (
                     id                   integer           primary key
                   , name                 text not null
@@ -61,17 +75,17 @@ class ExampleApplication( Adw.Application ):
                   , address_line_1      text
                   , address_line_2      text
                   , city                text
-                  , state               text
+                  , state               int
                   , country             text
                   , postcode            text
                 );""" )
             addresses = [
-                ( 1 , 'Parramatta Road' , None , 'Granville' , 'NSW' , 'Australia' , 2142 )
-              , ( 1 , 'Parramatta Road' , None , 'Auburn' , 'NSW' , 'Australia' , None )
-              , ( 2 , 'HPPL House', '28-42 Ventnor Avenue' , 'West Perth' , 'WA' , 'Australia' , 6005 )
-              , ( 3 , 'P.O.Box 549' , 'KY1-1602, Corner of Mary Street and Sheddon Road' , 'Grand Cayman' , 'CA' , 'Cayman Islands' , 'KY1-1602' )
-              , ( 4 , 'Hillsong Convention Centre' , '1 Solent Cct' , 'Norwest' , 'NSW' , 'Australia' , 2153 )
-              , ( 5 , '2 Holt Street' , None , 'Surry Hills' , 'NSW' , 'Australia' , 2010 )
+                ( 1 , 'Parramatta Road' , None , 'Granville' , 1 , 'Australia' , 2142 )
+              , ( 1 , 'Parramatta Road' , None , 'Auburn' , 1 , 'Australia' , None )
+              , ( 2 , 'HPPL House', '28-42 Ventnor Avenue' , 'West Perth' , 2 , 'Australia' , 6005 )
+              , ( 3 , 'P.O.Box 549' , 'KY1-1602, Corner of Mary Street and Sheddon Road' , 'Grand Cayman' , 3 , 'Cayman Islands' , 'KY1-1602' )
+              , ( 4 , 'Hillsong Convention Centre' , '1 Solent Cct' , 'Norwest' , 1 , 'Australia' , 2153 )
+              , ( 5 , '2 Holt Street' , None , 'Surry Hills' , 1 , 'Australia' , 2010 )
             ]
             for i in range( 0, 200 ):
                 cursor.executemany(

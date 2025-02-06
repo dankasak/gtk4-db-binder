@@ -91,7 +91,7 @@ class Main_Window( object ):
             ]
           , drop_downs = {
                 'state': {
-                    'sql': 'select state , state from addresses group by 1 , 2'
+                    'sql': 'select id , state from states'
                   , 'bind_values': []
                 }
             }

@@ -14,8 +14,8 @@ class States_Window( object ):
         self.connection = globals['connection']
         self.builder = Gtk.Builder( self )
         self.builder.add_from_file( 'states_window.ui' )
-        self.example_window = self.builder.get_object( 'states_window' )
-        self.example_window.set_application( globals['application'] )
+        self.states_window = self.builder.get_object( 'states_window' )
+        self.states_window.set_application( globals['application'] )
 
         self.css_provider = Gtk.CssProvider()
 
@@ -27,3 +27,5 @@ class States_Window( object ):
             }
           , box = self.builder.get_object( 'states_datasheet_box' )
         )
+
+        self.states_window.present()

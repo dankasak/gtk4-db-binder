@@ -726,12 +726,14 @@ class Gtk4DbAbstract( object ):
                 "#        print( \"In [{0}].setter() ... current: [{3}] ... new: [{4}]\".format( {0} , self._{0} ) )\n" \
                 "        if str( self._{0} ) != {0}:\n" \
                 "#            print( \"[{0}] changed\" )\n"
-                "            self._{0} = {0}\n" \
                 "            self.notify( \"{0}\" )\n" \
                 "            if self.row_state == '{1}':\n" \
+                "                self.set_original_value( '{0}' , self._{0} )\n" \
                 "#                print( \"grid row state ==> changed\" )\n" \
                 "                self.row_state = '{2}'\n" \
-                "                self.notify( \"row_state\" )\n    ".format(
+                "                self.notify( \"row_state\" )\n" \
+                "            self._{0} = {0}\n" \
+                "    ".format(
                     column_definitions[ i ]['name'] # 0
                     , UNCHANGED # 1
                     , CHANGED # 2
@@ -807,6 +809,8 @@ class Gtk4DbAbstract( object ):
 
         if len( self.datasheet.model ):
             self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , this_foreign_key_binder )
+        else:
+            self.sync_grid_row_to_foreign_key_binding( None , this_foreign_key_binder )
 
     def create_foreign_key_binder( self , keys_list , mapping , parent_friendly_table_name ):
 
@@ -1602,14 +1606,24 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
     def selection_changed_handler( self , selection, first_item_changed, no_of_items_changed ):
 
         if self.on_row_select or len( self.child_foreign_key_binders ):
-            position = selection.get_selected()
-            grid_row = selection[ position ]
-            if grid_row.track() != self.current_track:
+            """If ther'es nothing in the model, select.get_selected() STILL returns an int
+                  ... and this will make selection[ position ] below fail on a list index error"""
+            try:
+                position = selection.get_selected()
+                grid_row = selection[ position ]
+                if grid_row.track() != self.current_track:
+                    for fkb in self.child_foreign_key_binders:
+                        self.sync_grid_row_to_foreign_key_binding( grid_row , fkb )
+                    self.current_track = grid_row.track()
+                    if self.on_row_select:
+                        self.on_row_select( grid_row )
+            except:
+                """If the position appears to be invalid, assume the model is empty. In this case,
+                   we want to refresh FKBs with None instead of a grid_row ... ie empty them"""
                 for fkb in self.child_foreign_key_binders:
-                    self.sync_grid_row_to_foreign_key_binding( grid_row , fkb )
-                self.current_track = grid_row.track()
-                if self.on_row_select:
-                    self.on_row_select( grid_row )
+                    self.sync_grid_row_to_foreign_key_binding( None , fkb )
+                self.current_track = None
+
 
     def sync_grid_row_to_foreign_key_binding( self , grid_row , foreign_key_binding ):
             """
@@ -1620,7 +1634,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             """
             keys_dict = {}
             for this_mapping in foreign_key_binding.mapping:
-                keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
+                if grid_row:
+                    keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
+                else:
+                    keys_dict[ this_mapping['target'] ] = None
             setattr( foreign_key_binding , 'keys_dict_json' , json.dumps( keys_dict ) )
 
     def _do_query( self ):
@@ -1628,11 +1645,9 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         if self.datasheet:
             self.box.remove( self.datasheet )
 
-        # We need to reset this, or we can miss handling row-selected events
-        # ( eg if the 1st row was selected, and we request, and again the 1st row is selected )
-
+        """We need to reset the current track, or we can miss handling row-selected events
+          ( eg if the 1st row was selected, and we request, and again the 1st row is selected )"""
         self.current_track = None
-
         cursor = super()._do_query()
 
         if not self.setup_fields():
@@ -1640,23 +1655,16 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         self.datasheet = DatasheetWidget( self.fields , cursor , self.drop_downs )
 
-        # We need these back at this level, and not in the DatasheetWidget, for things to work in a generic way
+        """We need these back at this level, and not in the DatasheetWidget, for things to work in a generic way"""
         self.grid_row_class = self.datasheet.grid_row_class
         self.model = self.datasheet.model
-
         self.box.prepend( self.datasheet )
         self.widget_setup = True
-
-#        if self.on_row_select:
-#            self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
-#            # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
-#            if len( self.datasheet.model ):
-#                self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
-
         self.row_select_signal = self.datasheet.cv.get_model().connect( 'selection-changed' , self.selection_changed_handler )
-        # As the datasheet is already populated at this point we've missed the 1st selection-changed signal
-        if len( self.datasheet.model ):
-            self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
+
+        """As the datasheet is already populated at this point we've missed the 1st selection-changed signal,
+           so we trigger it now"""
+        self.selection_changed_handler( self.datasheet.single_selection , 0 , 1 )
 
         if self.after_query:
             self.after_query()

@@ -55,6 +55,11 @@ class GridDropDown( Gtk.DropDown , GridWidget ):
 
         super().__init__( **kwargs )
 
+class GridCheckButton( Gtk.CheckButton , GridWidget ):
+
+    def __init__( self , **kwargs ):
+
+        super().__init__( **kwargs )
 
 class GridLabel( Gtk.Label , GridWidget ):
 
@@ -345,6 +350,9 @@ class Gtk4DbAbstract( object ):
                 print ( "SQL was:\n{0}".format( sql ) )
             return False
 
+        if self.sql_executions_callback:
+            self.sql_executions_callback( self.friendly_table_name , sql , values )
+
         self.fieldlist = self.column_names_from_cursor( cursor )
         self.column_info = self.fetch_column_info( cursor )
 
@@ -415,6 +423,9 @@ class Gtk4DbAbstract( object ):
             if self.dump_on_error:
                 print ( "SQL was:\n{0}".format( sql ) )
             return False
+
+        if self.sql_executions_callback:
+            self.sql_executions_callback( self.friendly_table_name , sql , values )
 
         return True
 
@@ -495,6 +506,9 @@ class Gtk4DbAbstract( object ):
                 print ( "SQL was:\n{0}".format( sql ) )
             return False
 
+        if self.sql_executions_callback:
+            self.sql_executions_callback( self.friendly_table_name , sql , values )
+
         # If we just inserted a record, we have to fetch the primary key and replace the current '!' with it
         if self.auto_incrementing:
             for key_name in self.primary_keys:
@@ -562,6 +576,9 @@ class Gtk4DbAbstract( object ):
                 print ( "SQL was:\n{0}".format( sql ) )
             return False
 
+        if self.sql_executions_callback:
+            self.sql_executions_callback( self.friendly_table_name , sql , values )
+
         self._set_record_unchanged( row=row )
 
         return True
@@ -617,6 +634,9 @@ class Gtk4DbAbstract( object ):
                 widget = Gtk.SpinButton.new( adjustment , 1 , 0 )
                 widget.connect( 'value-changed' , self.handle_spinner_update )
                 self.spinner = widget
+            elif this_item['type'] == 'status_icon':
+                widget = Gtk.Image.new()
+                self.status_icon = widget
 
             self.recordset_tools_box.append( widget )
 
@@ -648,7 +668,7 @@ class Gtk4DbAbstract( object ):
             raise e
 
         end_time = time.time()
-        print( "DB execute() completed in {0} seconds".format( round( end_time - start_time ) , 2 ) )
+#        print( "DB execute() completed in {0} seconds".format( round( end_time - start_time ) , 2 ) )
 
     def fetchrow_dict( self , cursor ):
 
@@ -887,6 +907,22 @@ class Gtk4DbAbstract( object ):
         value = row.key
         return value
 
+    def bind_checkbutton_transform_to( self , binding , this_boolean_as_str ):
+
+        """Here we're transforming from the value in the model to the checkbox's 'active' state"""
+        if this_boolean_as_str is None:
+            return False
+        elif this_boolean_as_str.lower().startswith( 'f' ):
+            return False
+        elif this_boolean_as_str.lower().startswith( 't' ):
+            return True
+        else:
+            assert( "bind_checkbox_transform_to was passed {0}".format( this_boolean_as_str ) )
+
+    def set_sql_executions_callback( self , sql_executions_callback ):
+
+        self.set_sql_executions_callback = sql_executions_callback
+
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
     def __init__( self , column_definitions , data , drop_downs ):
@@ -1010,6 +1046,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget = GridLabel( xalign=xalign , width_chars=chars , ellipsize=Pango.EllipsizeMode.END , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
         elif type == "text" or type == "date" or type == "timestamp" or type == "hidden":
             widget = GridEntry( xalign=xalign , width_chars=chars , valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+        elif type == "checkbutton":
+            widget = GridCheckButton( column_name=name )
         elif type == "drop_down":
             widget = GridDropDown( valign=Gtk.Align.FILL , vexpand=True , column_name=name )
         elif type == "image":
@@ -1034,6 +1072,14 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
                                                     ,  GObject.BindingFlags.SYNC_CREATE
                                                      | GObject.BindingFlags.BIDIRECTIONAL
                                                     , self.bind_transform
+                                                    )
+        elif type == "checkbutton":
+            widget._binding = grid_row.bind_property( column_name
+                                                    , widget
+                                                    , "active"
+                                                    ,  GObject.BindingFlags.SYNC_CREATE
+                                                     | GObject.BindingFlags.BIDIRECTIONAL
+                                                    , self.bind_checkbutton_transform_to
                                                     )
         elif type == "drop_down":
             factory = self.drop_downs[ column_name ]['factory']
@@ -1477,7 +1523,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
                  , quiet=False, recordset_items=None, on_row_select=None
                  , before_insert=None, on_insert=None
-                 , drop_downs={}, **kwargs ):
+                 , drop_downs={}, sql_executions_callback=None , **kwargs ):
 
         if recordset_items is None:
             recordset_items = ["insert", "undo", "delete", "apply", "data_to_csv"]
@@ -1530,6 +1576,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.foreign_key_binder = None
         self.drop_downs = drop_downs
         self.drop_down_models = {}
+        self.sql_executions_callback = sql_executions_callback
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1876,10 +1923,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , dont_update_keys=False , auto_incrementing=True , on_apply=False , sw_no_scroll=False , dump_on_error=False
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
-                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {} ):
+                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {} , sql_executions_callback = None ):
 
         if recordset_items is None:
-            recordset_items = [ "spinner" , "status" , "insert" , "undo" , "delete" , "apply" ]
+            recordset_items = [ "status" , "spinner" , "insert" , "undo" , "delete" , "apply" ]
 
         self.recordset_items = recordset_items
 
@@ -1888,8 +1935,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         #         raise Exception( "Gtk4DbForm constructor missing {0}".format(i) )
 
         self.supported_recordset_items = {
-            "spinner":        { "type": "spinbutton" }
-          , "status":         { "type": "label" }
+            "status":         { "type": "status_icon" }
+          , "spinner":        { "type": "spinbutton" }
           , "insert":         { "type": "button" , "icon_name": "document-new" }
           , "undo":           { "type": "button" , "icon_name": "edit-undo" }
           , "delete":         { "type": "button" , "icon_name": "edit-delete" }
@@ -1934,6 +1981,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.child_foreign_key_binders = []
         self.foreign_key_binder = None
         self.drop_downs = drop_downs
+        self.sql_executions_callback = sql_executions_callback
+        self.status_icon = None
 
         red_frame_css = """
         entry.red-frame {
@@ -1999,11 +2048,11 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
     def get( self , column_name ):
 
-        return getattr( self.model , column_name )
+        return getattr( self.model[ self.position ] , column_name )
 
     def set( self , column_name , value ):
 
-        setattr( self.model , column_name , value )
+        setattr( self.model[ self.position ] , column_name , value )
 
     def _do_query( self ):
 
@@ -2085,22 +2134,38 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                                                                      , self.bind_dropdown_transform_from
                                                                      , column_name
                                                                    )
+                elif isinstance( widget , Gtk.CheckButton ):
+                    self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
+                                                                       column_name , widget , "active"
+                                                                     , GObject.BindingFlags.BIDIRECTIONAL
+                                                                     | GObject.BindingFlags.SYNC_CREATE
+                                                                     , self.bind_checkbutton_transform_to
+                                                                   )
                 else:
                     self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
                                                                        column_name , widget , "text"
                                                                      , GObject.BindingFlags.BIDIRECTIONAL
                                                                      | GObject.BindingFlags.SYNC_CREATE
                                                                      , self.bind_transform_to )
-                    signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
+
+                signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
+
+            if self.status_icon:
+                self.model_to_widget_bindings[ '__status_icon__' ] = this_grid_row.bind_property(
+                                                                         'row_state' , self.status_icon , 'icon-name'
+                                                                       , GObject.BindingFlags.SYNC_CREATE )
 
     def bind_transform_to( self , binding , value ):
 
         return '' if value is None else value
 
     def handle_grid_notify( self , grid_row , param_spec ):
+        """I was half asleep when writing this. It looks like I'm trying to put a red frame around NULL values
+           Perhaps there's a better place to do it? It appears to not work, anyway ..."""
         notify_topic = param_spec.name
         if notify_topic != 'row-state':
             # Assume the topic is a column name at this point
+            notify_topic = notify_topic.replace( '-' , '_' )
             current_value = getattr( grid_row , notify_topic )
             widget = self.get_widget( notify_topic )
             if current_value is not None:
@@ -2209,7 +2274,12 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         if not super().insert( button , row_state = row_state , columns_and_values = {} , *args ):
             return
 
-        self.move( len( self.model ) - 1 )
+        if self.spinner:
+            self.set_spinner_range() # ie expand the range by 1
+            record_count = len( self.model )
+            self.spinner.set_value( record_count ) # This will move to the new record
+        else:
+            self.move( None , len( self.model ) - 1 ) # This is another way to move to the new record
 
     def upsert_key( self , column_name , value ):
 

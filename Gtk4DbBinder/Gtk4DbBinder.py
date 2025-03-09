@@ -23,7 +23,7 @@ import pathlib
 import gi
 gi.require_version( "Gtk" , "4.0" )
 from gi.repository import Gtk, Gio, Gdk, Pango, GObject, GLib
-import json , uuid , importlib.util , sys , re , time
+import json , uuid , importlib.util , sys , re , time , datetime
 
 # Define some 'constants'
 # These are the names of icons we render for the relevant record statuses
@@ -200,13 +200,14 @@ class Gtk4DbAbstract( object ):
 
         return True
 
-    def dialog( self , title="Gtk4 DB Binder dialog" , type="info" , text=None , markup = None , handler=None ):
+    def dialog( self , title="Gtk4 DB Binder dialog" , type="info" , text=None , markup = None , default = None
+              , handler=None ):
 
         if not text and not markup:
             raise Exception( "dialog wasn't passed text or markup!" )
 
         headerbar = Gtk.HeaderBar( show_title_buttons = False )
-        modal = Gtk.Window( modal = True , title = title )
+        modal = Gtk.Window( modal = True , title = title , default_width = 600 )
         modal.set_transient_for( self.window )
         modal.set_titlebar( headerbar )
         vbox = Gtk.Box( orientation = Gtk.Orientation.VERTICAL , spacing = 10
@@ -219,12 +220,33 @@ class Gtk4DbAbstract( object ):
             label.set_markup( markup )
 
         if type == "info":
-            button_box.append( self.icon_button( label_text='OK' , markup="" , icon_name='gtk-info' , handler=lambda x: self.dialog_handler( modal , handler , 'OK' ) ) )
+            button_box.append( self.icon_button( label_text='OK' , markup="" , icon_name='gtk-info'
+                                               , handler=lambda x: self.dialog_handler( modal , handler , 'OK' )
+                                               )
+                             )
         elif type == "question":
-            button_box.append( self.icon_button( label_text='Yes' , markup="" , icon_name='gtk-yes' , handler=lambda x: self.dialog_handler( modal , handler, True ) ) )
-            button_box.append( self.icon_button( label_text='No' , markup="" , icon_name='gtk-no' , handler=lambda x: self.dialog_handler( modal , handler,  False ) ) )
+            button_box.append( self.icon_button( label_text='Yes' , markup="" , icon_name='gtk-yes'
+                                               , handler=lambda x: self.dialog_handler( modal , handler, True )
+                                               )
+                             )
+            button_box.append( self.icon_button( label_text='No' , markup="" , icon_name='gtk-no'
+                                               , handler=lambda x: self.dialog_handler( modal , handler,  False )
+                                               )
+                             )
         elif type == "warning" or type == "error":
-            button_box.append( self.icon_button( label_text='Doh' , markup="" , icon_name='gtk-info' , handler=lambda x: self.dialog_handler( modal , handler,  'OK' ) ) )
+            button_box.append( self.icon_button( label_text='Doh' , markup="" , icon_name='gtk-info'
+                                               , handler=lambda x: self.dialog_handler( modal , handler,  'OK' )
+                                               )
+                             )
+        elif type == "input":
+            input_entry = Gtk.Entry( hexpand = True )
+            if default:
+                input_entry.set_text( default )
+            button_box.append( input_entry )
+            button_box.append( self.icon.button( label_text = 'OK' , markup = ''
+                                               , handler = lambda x: self.dialog_handler( modal , handler , input_entry.get_text() )
+                                               )
+                             )
 
         vbox.append( label )
         vbox.append( button_box )
@@ -350,9 +372,6 @@ class Gtk4DbAbstract( object ):
                 print ( "SQL was:\n{0}".format( sql ) )
             return False
 
-        if self.sql_executions_callback:
-            self.sql_executions_callback( self.friendly_table_name , sql , values )
-
         self.fieldlist = self.column_names_from_cursor( cursor )
         self.column_info = self.fetch_column_info( cursor )
 
@@ -360,7 +379,7 @@ class Gtk4DbAbstract( object ):
 
         return cursor
 
-    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
+    def insert( self , button = None , row_state = INSERTED , columns_and_values = {} , *args ):
 
         if self.before_insert:
             if not self.before_insert():
@@ -425,9 +444,14 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            self.sql_executions_callback( self.friendly_table_name , sql , values )
+            mog_sql = self.mogrify( cursor , sql , values )
+            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
 
         return True
+
+    def mogrify( self , cursor , sql , bind_values ):
+
+        return "{0}\n{1}".format( sql , to_json( bind_values , indent = 4 ) )
 
     def column_from_sql_name( self , sql_fieldname ):
 
@@ -469,6 +493,10 @@ class Gtk4DbAbstract( object ):
 
         return "%s"
 
+    def _db_prepare_insert_id_capture_suffix( self ):
+
+        return ""
+
     def _do_insert( self , row=None ):
 
         sql_fields_list = []
@@ -487,10 +515,11 @@ class Gtk4DbAbstract( object ):
                 value = re.sub( "[^\d\.]", "" , value )
             values.append( value )
 
-        sql = "insert into {0} ( {1} ) values ( {2} )".format(
+        sql = "insert into {0} ( {1} ) values ( {2} ){3}".format(
             self.sql['from']
             , " , ".join( sql_fields_list )
             , " , ".join( placeholders_list )
+            , self._db_prepare_insert_id_capture_suffix()
         )
 
         try:
@@ -507,7 +536,8 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            self.sql_executions_callback( self.friendly_table_name , sql , values )
+            mog_sql = self.mogrify( cursor , sql , values )
+            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
 
         # If we just inserted a record, we have to fetch the primary key and replace the current '!' with it
         if self.auto_incrementing:
@@ -536,21 +566,23 @@ class Gtk4DbAbstract( object ):
         for column_name in self.fieldlist:
             # SQL Server, amongst others, doesn't allow updates of primary keys
             column_no = self.column_from_sql_name( column_name )
+            value = getattr( row , column_name )
+            original_value = row.get_original_value( column_name )
             if (    column_name in self.primary_keys
                     and self.dont_update_keys
             ) or ( 'dont_update' in self.fields[ column_no ] ) \
                     or column_name == "" \
-                    or 'sql_ignore' in self.fields[ column_no ]:
+                    or 'sql_ignore' in self.fields[ column_no ] \
+                    or value == original_value:
                 continue
             sql_fields_list.append( self._db_prepare_update_column_fragment( self.fields[ column_no ] , column_name ) )
-            value = getattr( row , column_name )
             if 'number' in self.fields[ column_no ].keys():
                 value = re.sub( "[^\d\.]", "" , value )
             values.append( value )
 
-        sql = "update {0} set {1} where ".format(
+        sql = "update {0} set\n    {1}\nwhere\n    ".format(
             self.sql['from']
-            , " , ".join( sql_fields_list )
+            , "\n  , ".join( sql_fields_list )
         )
 
         placeholder_list = []
@@ -560,7 +592,7 @@ class Gtk4DbAbstract( object ):
 #            values.append( getattr( row , primary_key_item ) )
             # For databases that support updating the primary key, we need to use the *original* value in the filter
             values.append( row.get_original_value( primary_key_item ) )
-        sql = sql + " and ".join( placeholder_list )
+        sql = sql + "\nand ".join( placeholder_list ) + "\n;"
 
         try:
             cursor = self.connection.cursor()
@@ -577,7 +609,8 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            self.sql_executions_callback( self.friendly_table_name , sql , values )
+            mog_sql = self.mogrify( cursor , sql , values )
+            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
 
         self._set_record_unchanged( row=row )
 
@@ -687,6 +720,19 @@ class Gtk4DbAbstract( object ):
 
         column_info = {}
         return column_info
+
+    def get_current_dict( self ):
+
+        grid_row = self.get_current_grid_row()
+        current_dict = { field: getattr( grid_row , field ) for field in self.fieldlist }
+        return current_dict
+
+    def get_all_dicts( self ):
+
+        all = []
+        for i in self.model:
+            all.append( { field: getattr( i , field ) for field in self.fieldlist } )
+        return all
 
     def column_names_from_cursor( self , cursor ):
         raise Exception( "The column_names_from_cursor() method needs to be implemented by a subclass" )
@@ -838,6 +884,21 @@ class Gtk4DbAbstract( object ):
         self.foreign_key_binder.connect( 'notify' , self.handle_parent_foreign_key_update )
         return self.foreign_key_binder
 
+    def sync_grid_row_to_foreign_key_binding( self , grid_row , foreign_key_binding ):
+            """
+              Here we assemble a keys dict and call the foreign key binder's setter method,
+              which will trigger a child requery.
+              This is a separate method, which is called from above, and also when
+              setting up the binding initially
+            """
+            keys_dict = {}
+            for this_mapping in foreign_key_binding.mapping:
+                if grid_row:
+                    keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
+                else:
+                    keys_dict[ this_mapping['target'] ] = None
+            setattr( foreign_key_binding , 'keys_dict_json' , json.dumps( keys_dict ) )
+
     def handle_parent_foreign_key_update( self , foreign_key_binder , g_param_spec ):
 
         """Here we handle a parent binder being updated"""
@@ -860,6 +921,7 @@ class Gtk4DbAbstract( object ):
         cursor = self.connection.cursor()
         cursor.execute( sql , bind_values )
         model = Gio.ListStore( item_type = KeyValueModel )
+        model.append( KeyValueModel( None , '< nothing selected >' ) )
         for record in cursor:
             model.append( KeyValueModel( record[0] , record[1] ) )
 
@@ -912,16 +974,36 @@ class Gtk4DbAbstract( object ):
         """Here we're transforming from the value in the model to the checkbox's 'active' state"""
         if this_boolean_as_str is None:
             return False
-        elif this_boolean_as_str.lower().startswith( 'f' ):
+        elif this_boolean_as_str.lower().startswith( 'f' ) or this_boolean_as_str == str( 0 ):
             return False
-        elif this_boolean_as_str.lower().startswith( 't' ):
+        elif this_boolean_as_str.lower().startswith( 't' ) or this_boolean_as_str == str( 1 ):
             return True
         else:
-            assert( "bind_checkbox_transform_to was passed {0}".format( this_boolean_as_str ) )
+            print( "bind_checkbox_transform_to was passed {0}".format( this_boolean_as_str ) )
+
+    def get_drop_down_text( self , column_name ):
+
+        if column_name in self.drop_down_models.keys():
+            model = self.drop_down_models[ column_name ]
+            selected_key = self.get( column_name )
+            for i in model:
+                if i.key == selected_key:
+                    return i.value
+            return None
+
+    def set_drop_down_by_text( self , column_name , drop_down_text ):
+
+        if column_name in self.drop_down_models.keys():
+            model = self.drop_down_models[ column_name ]
+            for i in model:
+                if i.value == drop_down_text:
+                    self.set( column_name , i.key )
+                    return True
+                return False
 
     def set_sql_executions_callback( self , sql_executions_callback ):
 
-        self.set_sql_executions_callback = sql_executions_callback
+        self.sql_executions_callback = sql_executions_callback
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
@@ -1021,7 +1103,6 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         f.connect( "setup" , self.setup , 'image' , 1 , -1 , 'row_state' )
         f.connect( "bind" , self.bind , 'image' , 'row_state' )
         f.connect( "unbind" , self.unbind )
-
         cvc = Gtk.ColumnViewColumn( title = '#' , factory = f )
         cvc.set_fixed_width( 50 )
         self.cv.append_column( cvc )
@@ -1032,7 +1113,14 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             f.connect( "setup" , self.setup , d['type'] , 1 , -1 , d['name'] )
             f.connect( "bind" , self.bind , d['type'] , d['name'] )
             f.connect( "unbind" , self.unbind )
-            cvc = Gtk.ColumnViewColumn( title = d['name'] if d['type'] != 'hidden' else '' , factory = f )
+            header = ""
+            if 'header' in d.keys():
+                header = d['header']
+            elif d['type'] == 'hidden':
+                header = ""
+            else:
+                header = d['name']
+            cvc = Gtk.ColumnViewColumn( title = header , factory = f )
             if 'x_absolute' in d.keys() and d['x_absolute']:
                 cvc.set_fixed_width( d['x_absolute'] )
             self.cv.append_column( cvc )
@@ -1165,28 +1253,8 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
 
         return [desc[0] for desc in cursor.description]
 
-    # def execute( self , cursor , sql , params={} ):
-    #
-    #     # import psycopg2
-    #
-    #     start_time = time.time()
-    #
-    #     try:
-    #         if len( params ) == 0:
-    #             cursor.execute( sql )
-    #         else:
-    #             cursor.execute( sql , params )
-    #     # except psycopg2.OperationalError as e:
-    #     #     raise e
-    #     except Exception as e:
-    #         raise e
-    #
-    #     end_time = time.time()
-    #     print( "execute() completed in {0} seconds".format( round( end_time - start_time ) , 2 ) )
-
     def last_insert_id( self , cursor ):
 
-        cursor.execute('SELECT LASTVAL()')
         return cursor.fetchone()[0]
 
     def _db_prepare_insert_column_fragment( self , column_definition , column_name ):
@@ -1199,6 +1267,13 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
             return "cast( nullif( %s, '' ) as timestamp )"
         else:
             return "%s"
+
+    def _db_prepare_insert_id_capture_suffix( self ):
+
+        if self.auto_incrementing:
+            return "\nreturning id"
+        else:
+            return ""
 
     def _db_prepare_update_column_fragment( self , column_definition , column_name ):
 
@@ -1223,6 +1298,25 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
             column_info[ i.name ] = this
         return column_info
 
+    def mogrify( self , cursor , sql , bind_values ):
+
+        from psycopg import sql as psycopg_sql
+
+        # Forgive me
+        escaped_values = []
+        for val in bind_values:
+            if val is None:
+                escaped_values.append( 'null' )
+            elif isinstance( val , int ):
+                escaped_values.append( val )
+            elif isinstance( val , datetime.datetime ) or isinstance( val , datetime.date ):
+                escaped_values.append( "'{0}'".format( str( val ).replace( "'" , "'''" ) ) )
+            else:
+                escaped_values.append( "'{0}'".format( val.replace( "'" , "'''" ) ) )
+        query = psycopg_sql.SQL( sql ).format( escaped_values )
+        mog_sql = query.as_string( cursor.connection ) % tuple( escaped_values )
+
+        return mog_sql
 
 class Gtk4SnowflakeAbstract( Gtk4DbAbstract ):
 
@@ -1496,7 +1590,6 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             db_name_map = {
                 'psycopg': 'Postgres'
               , 'psycopg2': 'Postgres'
-              , 'psycopg3': 'Postgres'
               , 'mysql': 'MySQL'
               , 'sqlite3': 'SQLite'
               , 'sqlite': 'SQLite'
@@ -1581,16 +1674,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
 
-        for drop_down in drop_downs:
-            factory , model = self.setup_drop_down_factory_and_model(
-                drop_downs[ drop_down ]['sql']
-              , drop_downs[ drop_down ]['bind_values']
-            )
-            drop_downs[ drop_down ]['model'] = model
-            self.drop_down_models[ drop_down ] = model
-            drop_downs[ drop_down ]['factory'] = factory
-
         self.drop_downs = drop_downs
+        self.setup_all_drop_downs()
 
         if not len( friendly_table_name ):
             if 'from' in self.sql.keys():
@@ -1604,7 +1689,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
             return
 
         if not self.no_auto_tools_box:
-            self.recordset_tools_box = Gtk.Box( orientation = Gtk.Orientation.HORIZONTAL , spacing = 5 )
+            # self.recordset_tools_box = Gtk.Box( orientation = Gtk.Orientation.HORIZONTAL , spacing = 5 )
+            self.recordset_tools_box = Gtk.FlowBox( orientation = Gtk.Orientation.HORIZONTAL )
             self.recordset_tools_box.set_hexpand( True )
             self.recordset_tools_box.set_homogeneous( True )
             self.box.append( self.recordset_tools_box )
@@ -1623,6 +1709,17 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         toplevel_widget.connect( 'close_request' , self.on_toplevel_closed )
 
         self.window = toplevel_widget
+
+    def setup_all_drop_downs( self ):
+
+        for drop_down in self.drop_downs:
+            factory , model = self.setup_drop_down_factory_and_model(
+                self.drop_downs[ drop_down ]['sql']
+              , self.drop_downs[ drop_down ]['bind_values']
+            )
+            self.drop_downs[ drop_down ]['model'] = model
+            self.drop_down_models[ drop_down ] = model
+            self.drop_downs[ drop_down ]['factory'] = factory
 
     def destroy( self ):
 
@@ -1671,21 +1768,6 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                     self.sync_grid_row_to_foreign_key_binding( None , fkb )
                 self.current_track = None
 
-
-    def sync_grid_row_to_foreign_key_binding( self , grid_row , foreign_key_binding ):
-            """
-              Here we assemble a keys dict and call the foreign key binder's setter method,
-              which will trigger a child requery.
-              This is a separate method, which is called from above, and also when
-              setting up the binding initially
-            """
-            keys_dict = {}
-            for this_mapping in foreign_key_binding.mapping:
-                if grid_row:
-                    keys_dict[ this_mapping['target'] ] = getattr( grid_row , this_mapping['source'] )
-                else:
-                    keys_dict[ this_mapping['target'] ] = None
-            setattr( foreign_key_binding , 'keys_dict_json' , json.dumps( keys_dict ) )
 
     def _do_query( self ):
 
@@ -1807,7 +1889,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
     def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
 
-        if not super().insert( button , row_state = row_state , columns_and_values = columns_and_values , *args ):
+        if not super().insert( button = None , row_state = row_state , columns_and_values = columns_and_values , *args ):
             return
 
         model_size = len( self.model )
@@ -1831,15 +1913,6 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
     def unlock( self , *args ):
 
         print( "unlock() not implemented!" )
-
-    def replace_combo_model( self , column_no, model ):
-
-        # This function replaces a *normal* combo ( NOT a dynamic one ) with a new one
-        column = self.treeview.get_column( column_no )
-        renderer = ( column.get_cells )[0]
-        renderer.set( "model" , model )
-
-        return True
 
     def create_dynamic_model( self , model_setup, data ):
 
@@ -1901,7 +1974,6 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             db_name_map = {
                 'psycopg': 'Postgres'
               , 'psycopg2': 'Postgres'
-              , 'psycopg3': 'Postgres'
               , 'mysql':    'MySQL'
               , 'sqlite3':  'SQLite'
               , 'sqlite':   'SQLite'
@@ -2013,10 +2085,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         if self.recordset_tools_box:
             self.setup_recordset_tools()
 
-        # self.drop_downs is a dictionary, with keys being column names, and values being a dictionary
-        # defining some sql and bind values to set up the drop down
-        for drop_down in self.drop_downs:
-            self.setup_drop_down( drop_down , self.drop_downs[ drop_down ][ 'sql' ] , self.drop_downs[ drop_down ][ 'bind_values' ] )
+        self.setup_all_drop_downs()
 
         if not self.query():
             return
@@ -2028,6 +2097,13 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                 widget.connect( 'close_request' , self.on_toplevel_closed )
                 self.window = widget
                 return
+
+    def setup_all_drop_downs( self ):
+
+        # self.drop_downs is a dictionary, with keys being column names, and values being a dictionary
+        # defining some sql and bind values to set up the drop down
+        for drop_down in self.drop_downs:
+            self.setup_drop_down( drop_down , self.drop_downs[ drop_down ][ 'sql' ] , self.drop_downs[ drop_down ][ 'bind_values' ] )
 
     def setup_drop_down( self , column_name , sql , bind_values ):
 
@@ -2046,6 +2122,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                              " but none was found in the Gtk.Builder object".format( column_name , widget_name ) )
         return widget
 
+    def get_current_grid_row( self ):
+
+        return self.model[ self.position ]
+
     def get( self , column_name ):
 
         return getattr( self.model[ self.position ] , column_name )
@@ -2060,6 +2140,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         if not self.setup_fields():
             return None
+
+        self.setup_all_drop_downs()
 
         self.position = 0
         self.model = self.generate_model( self.fields , cursor )
@@ -2098,6 +2180,15 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                 self.position = absolute
 
         self.bind_model_to_widgets()
+
+        for fkb in self.child_foreign_key_binders:
+            self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row , fkb )
+
+
+    def undo( self , *args ):
+
+        super().undo( *args )
+        self.set_spinner_range() # If we're undoing an insert, we need this
 
     def bind_model_to_widgets( self ):
 
@@ -2149,6 +2240,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                                                                      , self.bind_transform_to )
 
                 signal = this_grid_row.connect( 'notify' , self.handle_grid_notify )
+                self.highlight_null( column_name )
 
             if self.status_icon:
                 self.model_to_widget_bindings[ '__status_icon__' ] = this_grid_row.bind_property(
@@ -2167,26 +2259,16 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             # Assume the topic is a column name at this point
             notify_topic = notify_topic.replace( '-' , '_' )
             current_value = getattr( grid_row , notify_topic )
-            widget = self.get_widget( notify_topic )
-            if current_value is not None:
-                widget.add_css_class( 'red-frame' )
-            else:
-                widget.remove_css_class( 'red-frame' )
+            self.highlight_null( notify_topic )
 
-    def destroy( self ):
+    def highlight_null( self , column ):
 
-        for set in self.objects_and_signals:
-            set[0].signal_handler_disconnect( set[1] )
-
-        # TODO: push this signal onto our objects_and_signals so we don't have to do this ... but how do we remove
-        if self.changed_signal:
-            self.treeview.get_model().signal_handler_disconnect( self.changed_signal )
-
-        self.destroy_recordset_tools()
-
-        if self.box:
-            for i in self.box.get_children():
-                i.destroy()
+        current_value = self.get( column )
+        widget = self.get_widget( column )
+        if current_value is None:
+            widget.add_css_class( 'red-frame' )
+        else:
+            widget.remove_css_class( 'red-frame' )
 
     def any_changes( self ):
 
@@ -2269,7 +2351,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         return True
 
-    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
+    def insert( self , button = None , row_state = INSERTED , columns_and_values = {} , *args ):
 
         if not super().insert( button , row_state = row_state , columns_and_values = {} , *args ):
             return

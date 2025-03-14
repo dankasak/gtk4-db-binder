@@ -234,7 +234,7 @@ class Gtk4DbAbstract( object ):
                                                )
                              )
         elif type == "warning" or type == "error":
-            button_box.append( self.icon_button( label_text='Doh' , markup="" , icon_name='gtk-info'
+            button_box.append( self.icon_button( label_text='Doh' , markup="" , icon_name='dialog-warning'
                                                , handler=lambda x: self.dialog_handler( modal , handler,  'OK' )
                                                )
                              )
@@ -423,12 +423,16 @@ class Gtk4DbAbstract( object ):
 
         primary_key_filter_components = []
         values = []
+        mog_values = []
         sql = "delete from {0} where ".format( self.sql['from'] )
         for primary_key_item in self.primary_keys:
             column_no = self.column_from_sql_name( primary_key_item )
             primary_key_filter_components.append( self._db_prepare_update_column_fragment( self.fields[ column_no ] , primary_key_item ) )
-            values.append( getattr( row , primary_key_item ) )
-        sql = sql + " and ".join( primary_key_filter_components )
+            value = getattr( row , primary_key_item )
+            values.append( value )
+            if primary_key_item in self.mogrify_column_callbacks.keys():
+                mog_values.append( '/* mogrify callback */' + self.mogrify_column_callbacks[ primary_key_item ]( row , value )
+        sql = sql + " and ".join( primary_key_filter_components ) + ";"
 
         try:
             cursor = self.connection.cursor()
@@ -444,12 +448,12 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            mog_sql = self.mogrify( cursor , sql , values )
-            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
+            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values , mog_values=mog_values )
+            self.sql_executions_callback( table=self.friendly_table_name , sql=sql , bind_values=values , mog_sql=mog_sql , mog_values=mog_values )
 
         return True
 
-    def mogrify( self , cursor , sql , bind_values ):
+    def mogrify( self , cursor=None , sql='' , bind_values=[] , mog_values=[] ):
 
         return "{0}\n{1}".format( sql , to_json( bind_values , indent = 4 ) )
 
@@ -501,6 +505,7 @@ class Gtk4DbAbstract( object ):
 
         sql_fields_list = []
         values = []
+        mog_values = []
         placeholders_list = []
 
         for column_name in self.fieldlist:
@@ -515,7 +520,12 @@ class Gtk4DbAbstract( object ):
                 value = re.sub( "[^\d\.]", "" , value )
             values.append( value )
 
-        sql = "insert into {0} ( {1} ) values ( {2} ){3}".format(
+            if column_name in self.mogrify_column_callbacks.keys():
+                mog_values.append( '/* mogrify callback */ ' + self.mogrify_column_callbacks[ column_name ]( row , value ) )
+            else:
+                mog_values.append( value )
+
+        sql = "insert into {0} ( {1} ) values\n ( {2} ){3};".format(
             self.sql['from']
             , " , ".join( sql_fields_list )
             , " , ".join( placeholders_list )
@@ -536,8 +546,8 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            mog_sql = self.mogrify( cursor , sql , values )
-            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
+            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values )
+            self.sql_executions_callback( table=self.friendly_table_name , sql=sql , bind_values=values , mog_sql=mog_sql )
 
         # If we just inserted a record, we have to fetch the primary key and replace the current '!' with it
         if self.auto_incrementing:
@@ -562,6 +572,7 @@ class Gtk4DbAbstract( object ):
 
         sql_fields_list = []
         values = []
+        mog_values = []
 
         for column_name in self.fieldlist:
             # SQL Server, amongst others, doesn't allow updates of primary keys
@@ -580,6 +591,11 @@ class Gtk4DbAbstract( object ):
                 value = re.sub( "[^\d\.]", "" , value )
             values.append( value )
 
+            if column_name in self.mogrify_column_callbacks.keys():
+                mog_values.append( '/* mogrify callback */ ' + self.mogrify_column_callbacks[ column_name ]( row , value ) )
+            else:
+                mog_values.append( value )
+
         sql = "update {0} set\n    {1}\nwhere\n    ".format(
             self.sql['from']
             , "\n  , ".join( sql_fields_list )
@@ -591,7 +607,13 @@ class Gtk4DbAbstract( object ):
             placeholder_list.append( self._db_prepare_update_column_fragment( self.fields[ column_no ] , primary_key_item ) )
 #            values.append( getattr( row , primary_key_item ) )
             # For databases that support updating the primary key, we need to use the *original* value in the filter
-            values.append( row.get_original_value( primary_key_item ) )
+            value = row.get_original_value( primary_key_item )
+            values.append( value )
+            if primary_key_item in self.mogrify_column_callbacks.keys():
+                mog_values.append( self.mogrify_column_callbacks[ primary_key_item]( row , value ) )
+            else:
+                mog_values.append( value )
+
         sql = sql + "\nand ".join( placeholder_list ) + "\n;"
 
         try:
@@ -609,8 +631,8 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            mog_sql = self.mogrify( cursor , sql , values )
-            self.sql_executions_callback( self.friendly_table_name , sql , values , mog_sql )
+            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values )
+            self.sql_executions_callback( table=self.friendly_table_name , sql=sql , bind_values=values , mog_sql=mog_sql )
 
         self._set_record_unchanged( row=row )
 
@@ -683,6 +705,7 @@ class Gtk4DbAbstract( object ):
             adjustment = self.spinner.get_adjustment()
             record_count = len( self.model )
             adjustment.set_upper( record_count )
+            self.spinner.set_value( self.position + 1 )
 
     def data_to_csv( self , button ):
 
@@ -873,7 +896,7 @@ class Gtk4DbAbstract( object ):
         this_foreign_key_binder = child_gtk4_db_binder.create_foreign_key_binder( child_keys_list , column_mapping_list , self.friendly_table_name )
         self.child_foreign_key_binders.append( this_foreign_key_binder )
 
-        if len( self.datasheet.model ):
+        if len( self.model ):
             self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , this_foreign_key_binder )
         else:
             self.sync_grid_row_to_foreign_key_binding( None , this_foreign_key_binder )
@@ -999,7 +1022,7 @@ class Gtk4DbAbstract( object ):
                 if i.value == drop_down_text:
                     self.set( column_name , i.key )
                     return True
-                return False
+            return False
 
     def set_sql_executions_callback( self , sql_executions_callback ):
 
@@ -1298,19 +1321,27 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
             column_info[ i.name ] = this
         return column_info
 
-    def mogrify( self , cursor , sql , bind_values ):
-
-        from psycopg import sql as psycopg_sql
+    def mogrify( self , cursor=None , sql='' , bind_values=[] , mog_values=[] ):
 
         # Forgive me
+        from psycopg import sql as psycopg_sql
+
         escaped_values = []
-        for val in bind_values:
+        set_to_add = []
+        if mog_values:
+            set_to_add = mog_values
+        else:
+            set_to_add = bind_values
+
+        for val in set_to_add:
             if val is None:
                 escaped_values.append( 'null' )
             elif isinstance( val , int ):
                 escaped_values.append( val )
             elif isinstance( val , datetime.datetime ) or isinstance( val , datetime.date ):
                 escaped_values.append( "'{0}'".format( str( val ).replace( "'" , "'''" ) ) )
+            elif str( val ).startswith( '/* mogrify callback */' ):
+                escaled_values.append( val )
             else:
                 escaped_values.append( "'{0}'".format( val.replace( "'" , "'''" ) ) )
         query = psycopg_sql.SQL( sql ).format( escaped_values )
@@ -1616,7 +1647,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
                  , quiet=False, recordset_items=None, on_row_select=None
                  , before_insert=None, on_insert=None
-                 , drop_downs={}, sql_executions_callback=None , **kwargs ):
+                 , drop_downs={}, sql_executions_callback=None , mogrify_callbacks={}
+                 , **kwargs ):
 
         if recordset_items is None:
             recordset_items = ["insert", "undo", "delete", "apply", "data_to_csv"]
@@ -1670,6 +1702,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.drop_downs = drop_downs
         self.drop_down_models = {}
         self.sql_executions_callback = sql_executions_callback
+        self.mogrify_column_callbacks = mogrify_column_callbacks
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1861,6 +1894,9 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                 if not self._do_update( row=row ):
                     return False
 
+            for fkb in self.child_foreign_key_binders:
+                self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , fkb )
+
             # Execute user-defined functions
             if self.on_apply:
                 # Better change the status indicator back into text, rather than make
@@ -1887,7 +1923,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         return True
 
-    def insert( self , button , row_state = INSERTED , columns_and_values = {} , *args ):
+    def insert( self , button=None , row_state=INSERTED , columns_and_values= {} , *args ):
 
         if not super().insert( button = None , row_state = row_state , columns_and_values = columns_and_values , *args ):
             return
@@ -1995,7 +2031,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , dont_update_keys=False , auto_incrementing=True , on_apply=False , sw_no_scroll=False , dump_on_error=False
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
-                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {} , sql_executions_callback = None ):
+                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {}
+                  , sql_executions_callback = None , mogrify_column_callbacks = {} ):
 
         if recordset_items is None:
             recordset_items = [ "status" , "spinner" , "insert" , "undo" , "delete" , "apply" ]
@@ -2054,6 +2091,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.foreign_key_binder = None
         self.drop_downs = drop_downs
         self.sql_executions_callback = sql_executions_callback
+        self.mogrify_column_callbacks = mogrify_column_callbacks
         self.status_icon = None
 
         red_frame_css = """
@@ -2182,7 +2220,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.bind_model_to_widgets()
 
         for fkb in self.child_foreign_key_binders:
-            self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row , fkb )
+            self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , fkb )
 
 
     def undo( self , *args ):
@@ -2285,7 +2323,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             self.dialog(
                 title="Read Only!"
               , type="warning"
-              , text="Datasheet is open in read-only mode!"
+              , text="Form is open in read-only mode!"
             )
             return False
 
@@ -2331,6 +2369,9 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         elif state == CHANGED:
             if not self._do_update( row=row ):
                 return False
+
+        for fkb in self.child_foreign_key_binders:
+            self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , fkb )
 
         # Execute user-defined functions
         if self.on_apply:

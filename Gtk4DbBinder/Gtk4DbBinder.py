@@ -431,7 +431,7 @@ class Gtk4DbAbstract( object ):
             value = getattr( row , primary_key_item )
             values.append( value )
             if primary_key_item in self.mogrify_column_callbacks.keys():
-                mog_values.append( '/* mogrify callback */' + self.mogrify_column_callbacks[ primary_key_item ]( row , value )
+                mog_values.append( '/* mogrify callback */' + self.mogrify_column_callbacks[ primary_key_item ]( row , value ) )
         sql = sql + " and ".join( primary_key_filter_components ) + ";"
 
         try:
@@ -1647,7 +1647,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
                  , quiet=False, recordset_items=None, on_row_select=None
                  , before_insert=None, on_insert=None
-                 , drop_downs={}, sql_executions_callback=None , mogrify_callbacks={}
+                 , drop_downs={}, sql_executions_callback=None , mogrify_column_callbacks={}
                  , **kwargs ):
 
         if recordset_items is None:

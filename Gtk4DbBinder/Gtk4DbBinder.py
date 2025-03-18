@@ -243,7 +243,7 @@ class Gtk4DbAbstract( object ):
             if default:
                 input_entry.set_text( default )
             button_box.append( input_entry )
-            button_box.append( self.icon.button( label_text = 'OK' , markup = ''
+            button_box.append( self.icon_button( label_text = 'OK' , markup = ''
                                                , handler = lambda x: self.dialog_handler( modal , handler , input_entry.get_text() )
                                                )
                              )
@@ -431,7 +431,7 @@ class Gtk4DbAbstract( object ):
             value = getattr( row , primary_key_item )
             values.append( value )
             if primary_key_item in self.mogrify_column_callbacks.keys():
-                mog_values.append( '/* mogrify callback */' + self.mogrify_column_callbacks[ primary_key_item ]( row , value ) )
+                mog_values.append( '/* mogrify callback */ ' + self.mogrify_column_callbacks[ primary_key_item ]( row , value ) )
         sql = sql + " and ".join( primary_key_filter_components ) + ";"
 
         try:
@@ -546,7 +546,7 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values )
+            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values , mog_values=mog_values )
             self.sql_executions_callback( table=self.friendly_table_name , sql=sql , bind_values=values , mog_sql=mog_sql )
 
         # If we just inserted a record, we have to fetch the primary key and replace the current '!' with it
@@ -610,7 +610,7 @@ class Gtk4DbAbstract( object ):
             value = row.get_original_value( primary_key_item )
             values.append( value )
             if primary_key_item in self.mogrify_column_callbacks.keys():
-                mog_values.append( self.mogrify_column_callbacks[ primary_key_item]( row , value ) )
+                mog_values.append( '/* mogrify callback */ ' + self.mogrify_column_callbacks[ primary_key_item]( row , value ) )
             else:
                 mog_values.append( value )
 
@@ -1022,6 +1022,11 @@ class Gtk4DbAbstract( object ):
                 if i.value == drop_down_text:
                     self.set( column_name , i.key )
                     return True
+            self.dialog(
+                title = "Failed to set drop_down value"
+              , type  = "warning"
+              , text  = "set_drop_down_by_text() was asked to select the drop_down [ {0} ] by a lookup value [ {1} ] however this doesn't exist in the model!".format( column_name , drop_down_text )
+            )
             return False
 
     def set_sql_executions_callback( self , sql_executions_callback ):
@@ -1341,7 +1346,7 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
             elif isinstance( val , datetime.datetime ) or isinstance( val , datetime.date ):
                 escaped_values.append( "'{0}'".format( str( val ).replace( "'" , "'''" ) ) )
             elif str( val ).startswith( '/* mogrify callback */' ):
-                escaled_values.append( val )
+                escaped_values.append( val )
             else:
                 escaped_values.append( "'{0}'".format( val.replace( "'" , "'''" ) ) )
         query = psycopg_sql.SQL( sql ).format( escaped_values )
@@ -1814,6 +1819,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         if not self.setup_fields():
             return None
+
+        self.setup_all_drop_downs()
 
         self.datasheet = DatasheetWidget( self.fields , cursor , self.drop_downs )
 

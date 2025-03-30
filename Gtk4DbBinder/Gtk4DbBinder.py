@@ -220,16 +220,16 @@ class Gtk4DbAbstract( object ):
             label.set_markup( markup )
 
         if type == "info":
-            button_box.append( self.icon_button( label_text='OK' , markup="" , icon_name='gtk-info'
+            button_box.append( self.icon_button( label_text='OK' , markup="" , icon_name='dialog-information'
                                                , handler=lambda x: self.dialog_handler( modal , handler , 'OK' )
                                                )
                              )
         elif type == "question":
-            button_box.append( self.icon_button( label_text='Yes' , markup="" , icon_name='gtk-yes'
+            button_box.append( self.icon_button( label_text='Yes' , markup="" , icon_name='emblem-default'
                                                , handler=lambda x: self.dialog_handler( modal , handler, True )
                                                )
                              )
-            button_box.append( self.icon_button( label_text='No' , markup="" , icon_name='gtk-no'
+            button_box.append( self.icon_button( label_text='No' , markup="" , icon_name='dialog-error'
                                                , handler=lambda x: self.dialog_handler( modal , handler,  False )
                                                )
                              )
@@ -243,7 +243,7 @@ class Gtk4DbAbstract( object ):
             if default:
                 input_entry.set_text( default )
             button_box.append( input_entry )
-            button_box.append( self.icon_button( label_text = 'OK' , markup = ''
+            button_box.append( self.icon_button( label_text = 'OK' , markup = '' , icon_name = 'emblem-default'
                                                , handler = lambda x: self.dialog_handler( modal , handler , input_entry.get_text() )
                                                )
                              )
@@ -410,7 +410,7 @@ class Gtk4DbAbstract( object ):
         self.model.append( new_grid_row )
 
         if self.on_insert:
-            self.on_insert()
+            self.on_insert( new_grid_row )
 
         return True
 
@@ -441,7 +441,7 @@ class Gtk4DbAbstract( object ):
             self.dialog(
                 title="Error deleting record!"
               , type="error"
-              , markup="<b>Database server says:</b>\n\n{0}}".format( e )
+              , markup="<b>Database server says:</b>\n\n{0}".format( e )
             )
             if self.dump_on_error:
                 print ( "SQL was:\n{0}".format( sql ) )
@@ -631,7 +631,7 @@ class Gtk4DbAbstract( object ):
             return False
 
         if self.sql_executions_callback:
-            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values )
+            mog_sql = self.mogrify( cursor=cursor , sql=sql , bind_values=values , mog_values=mog_values )
             self.sql_executions_callback( table=self.friendly_table_name , sql=sql , bind_values=values , mog_sql=mog_sql )
 
         self._set_record_unchanged( row=row )
@@ -1632,7 +1632,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
               , 'snowflake': 'Snowflake'
             }
             mod = connection.__class__.__module__.split( '.' , 1 )[0]
-            print( "Found: [{0}]".format( mod ) )
+            # print( "Found: [{0}]".format( mod ) )
             db_type = db_name_map.get( mod )
             target_class = "Gtk4{0}Datasheet".format( db_type )
             if db_type == "Postgres":
@@ -1799,7 +1799,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                     self.current_track = grid_row.track()
                     if self.on_row_select:
                         self.on_row_select( grid_row )
-            except:
+            except Exception as e:
+                print( e )
                 """If the position appears to be invalid, assume the model is empty. In this case,
                    we want to refresh FKBs with None instead of a grid_row ... ie empty them"""
                 for fkb in self.child_foreign_key_binders:

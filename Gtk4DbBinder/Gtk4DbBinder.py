@@ -432,6 +432,8 @@ class Gtk4DbAbstract( object ):
             values.append( value )
             if primary_key_item in self.mogrify_column_callbacks.keys():
                 mog_values.append( '/* mogrify callback */ ' + self.mogrify_column_callbacks[ primary_key_item ]( row , value ) )
+            else:
+                mog_values.append( value )
         sql = sql + " and ".join( primary_key_filter_components ) + ";"
 
         try:

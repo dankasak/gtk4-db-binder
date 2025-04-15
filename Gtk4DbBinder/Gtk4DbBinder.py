@@ -1130,8 +1130,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         # A column for the row_state ( # )
 
         f = Gtk.SignalListItemFactory()
-        f.connect( "setup" , self.setup , 'image' , 1 , -1 , 'row_state' )
-        f.connect( "bind" , self.bind , 'image' , 'row_state' )
+        f.connect( "setup" , self.setup , 'status_icon' , 1 , -1 , 'row_state' )
+        f.connect( "bind" , self.bind , 'status_icon' , 'row_state' )
         f.connect( "unbind" , self.unbind )
         cvc = Gtk.ColumnViewColumn( title = '#' , factory = f )
         cvc.set_fixed_width( 50 )
@@ -1168,6 +1168,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget = GridCheckButton( column_name=name )
         elif type == "drop_down":
             widget = GridDropDown( valign=Gtk.Align.FILL , vexpand=True , column_name=name )
+        elif type == "status_icon":
+            widget = GridImage( column_name=name )
         elif type == "image":
             widget = GridImage( column_name=name )
         else:
@@ -1215,8 +1217,11 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
                                                     , self.bind_dropdown_transform_from
                                                     , column_name
                                                     )
-        elif type == "image":
+        elif type == "status_icon":
             widget._binding = grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
+        elif type == "image":
+            widget._binding = grid_row.bind_property( column_name , widget , "resource" , GObject.BindingFlags.SYNC_CREATE )
+            print( "image: {0}".format( getattr( grid_row , column_name ) ) )
         else:
             raise Exception( "Unknown type {0}".format( type ) )
 
@@ -2106,9 +2111,9 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         red_frame_css = """
         entry.red-frame {
-            padding: 9px;
-            border: 3px solid red;
-            border-radius: 9px;
+            padding: 1px;
+            border: 1px solid red;
+            border-radius: 1px;
         }
         """
 
@@ -2251,7 +2256,11 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         # - bind via bind_property() method, ie:
         #   https://stackoverflow.com/questions/67763050/how-to-do-2-way-data-binding-using-pythonpygobjects-gobject-bind-property-func
         for column_name in self.fieldlist:
-            widget = self.get_widget( column_name )
+            try:
+                widget = self.get_widget( column_name )
+            except Exception as e:
+                print( "{0}".format( e ) )
+                widget = None
             if widget:
                 if isinstance( widget , Gtk.Calendar ):
                     # This won't work, as Gtk.Calendar doesn't have a fucking 'date' property.

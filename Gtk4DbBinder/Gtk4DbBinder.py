@@ -32,6 +32,7 @@ CHANGED   = "media-playlist-shuffle"
 INSERTED  = "list-add"
 DELETED   = "list-remove"
 LOCKED    = "security-high"
+EMPTY     = "window-close"
 
 class GridWidget( Gtk.Widget ):
 
@@ -117,6 +118,96 @@ class KeyValueModel ( GObject.Object ):
     @GObject.Property
     def value( self ):
         return self._value
+
+
+class SharedBufferWindow:
+
+    def __init__( self , shared_mem_db , target_binder ):
+
+        self.shared_mem_db = shared_mem_db
+        self.target_binder = target_binder
+
+        self.window = Gtk.Window( default_width=1200 , default_height=1000 )
+        self.window.set_title( 'Shared Buffers' )
+        self.main_box = Gtk.Box( orientation=Gtk.Orientation.VERTICAL , spacing=10 , margin_top=10 , margin_botton=10 , margin_start=10 , margin_end=10 )
+
+        self.datasheet_box = Gtk.Box( orientation=Gtk.Orientation.VERTICAL , spacing=10 )
+        self.window.set_child( self.main_box )
+        self.main_box.append( self.datasheet_box )
+
+        self.datasheet = Gtk4DbDatasheet.generator(
+            connection = self.shared_mem_db
+          , auto_incrementing = True
+          , sql = {
+                "select": "*"
+              , "from": "shared_buffers"
+            }
+          , fields = [
+                {
+                    "name": "id"
+                  , "x_absolute": 120
+                }
+              , {
+                    "name": "name"
+                  , "x_percent": 100
+                }
+              , {
+                    "name": "copy_timestamp"
+                  , "x_absolute": 200
+                }
+              , {
+                    "name": "buffer"
+                  , "type": "hidden"
+                }
+           ]
+         , box = self.datasheet_box
+         , recordset_extra_tools = {
+               "paste_all": {
+                    "type": "button"
+                  , "markup": "<b><span color='blue'>Paste all values ...</span></b>"
+                  , "icon_mame": "dialog-warning"
+                  , "handler": self.paste_all
+                }
+             , "paste_over_only_empty": {
+                   "type": "button"
+                 , "markup": "<b><span color='green'>Paste over only empty values ...</span></b>"
+                 , "icon_name": "emblem-default"
+                 , "handler": self.paste_over_empty
+               }
+            }
+          , recordset_items = [ "paste_all" , "paste_over_only_empty" ]
+        )
+
+        self.window.present()
+
+    def paste_all( self , button ):
+
+        self.paste_wrapper( True )
+
+    def paste_over_empty( self , button ):
+
+        self.paste_wrapper( False )
+
+    def paste_wrapper( self , all_values ):
+
+        buffer = self.datasheet.get( 'buffer' )
+        buffer_obj = json.loads( buffer )
+        if isinstance( buffer_obj , dict ):
+            self.paste( buffer_obj , all_values )
+        else:
+            for i in buffer_obj:
+                self.target_binder.insert()
+                self.paste( buffer_obj , all_values )
+
+        self.window.close()
+
+    def paste( self , buffer_obj , all_values ):
+
+        for x in buffer_obj.keys:
+            if ( not all_values and not self.target_binder.get( x ) ) or ( all_values ):
+                self.target_binder.set( x , buffer_obj[ x ] )
+            else:
+                print( "Skipping pasting value for {0} as it's not empty, and user indicated to only paste over empty values".format( x ) )
 
 
 class Gtk4DbAbstract( object ):
@@ -337,7 +428,7 @@ class Gtk4DbAbstract( object ):
         # Fetch primary key(s), but only if we dont have some ( they can be passed in the constructor,
         # or we could have some from a previous query() call )
 
-        if not hasattr( self , 'primary_keys' ):
+        if not self.primary_keys:
             if self.read_only or 'pass_through' in self.sql.keys():
                 self.primary_keys = []
             else:
@@ -749,7 +840,7 @@ class Gtk4DbAbstract( object ):
     def get_current_dict( self ):
 
         grid_row = self.get_current_grid_row()
-        current_dict = { field: getattr( grid_row , field ) for field in self.fieldlist }
+        current_dict = { field: str( getattr( grid_row , field ) ) for field in self.fieldlist }
         return current_dict
 
     def get_all_dicts( self ):
@@ -758,6 +849,18 @@ class Gtk4DbAbstract( object ):
         for i in self.model:
             all.append( { field: getattr( i , field ) for field in self.fieldlist } )
         return all
+
+    def copy( self , button ):
+
+        self.execute(
+            self.shared_mem_db.cursor()
+          , "insert into shared_buffers( name , buffer ) values ( ? , ? )"
+          , [ self.friendly_table_name , json.dumps( self.get_all_dicts() ) ]
+        )
+
+    def paste( self , button ):
+
+        shared_buffer_window = SharedBufferWindow( self.shared_mem_db , self )
 
     def column_names_from_cursor( self , cursor ):
         raise Exception( "The column_names_from_cursor() method needs to be implemented by a subclass" )
@@ -823,13 +926,18 @@ class Gtk4DbAbstract( object ):
                 "#                print( \"grid row state ==> changed\" )\n" \
                 "                self.row_state = '{2}'\n" \
                 "                self.notify( \"row_state\" )\n" \
+                "            if self.row_state == '{5}':\n" \
+                "                self.row_state = '{6}'\n" \
+                "                self.notify( \"row_state\" )\n" \
                 "            self._{0} = {0}\n" \
                 "    ".format(
                     column_definitions[ i ]['name'] # 0
-                    , UNCHANGED # 1
-                    , CHANGED # 2
-                    , indirect_p1 # 3 ==> {0}
-                    , indirect_p2 # 4 ==> {1}
+                    , UNCHANGED    # 1
+                    , CHANGED      # 2
+                    , indirect_p1  # 3 ==> {0}
+                    , indirect_p2  # 4 ==> {1}
+                    , EMPTY        # 5
+                    , INSERTED     # 6
                 ) )
 
         class_def = class_def + "\n" + "\n".join( access_methods )
@@ -1034,6 +1142,18 @@ class Gtk4DbAbstract( object ):
     def set_sql_executions_callback( self , sql_executions_callback ):
 
         self.sql_executions_callback = sql_executions_callback
+
+    def setup_shared_mem_db( self ):
+
+        if self.shared_mem_db:
+            cursor = self.shared_mem_db.cursor()
+            self.execute( cursor , """
+                create table if not exists shared_buffers(
+                    id        integer      primary key     autoincrement
+                  , name      string       not null
+                  , copy_time timestamp    default current_timestamp
+                  , buffer    string       not null
+                )""" )
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
@@ -1306,7 +1426,7 @@ class Gtk4PostgresAbstract( Gtk4DbAbstract ):
     def _db_prepare_insert_id_capture_suffix( self ):
 
         if self.auto_incrementing:
-            return "\nreturning id"
+            return "\nreturning {0}".format( self.primary_keys[0] )
         else:
             return ""
 
@@ -1660,10 +1780,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , quiet=False, recordset_items=None, on_row_select=None
                  , before_insert=None, on_insert=None
                  , drop_downs={}, sql_executions_callback=None , mogrify_column_callbacks={}
-                 , **kwargs ):
+                 , shared_mem_db=None , primary_keys=None , **kwargs ):
 
         if recordset_items is None:
-            recordset_items = ["insert", "undo", "delete", "apply", "data_to_csv"]
+            recordset_items = [ "insert", "copy" , "paste" , "undo", "delete", "apply" ] # "data_to_csv"
 
         self.recordset_items = recordset_items
 
@@ -1673,6 +1793,8 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         self.supported_recordset_items = {
             "insert":         { "type": "button" , "icon_name": "document-new" }
+          , "copy":           { "type": "button" , "icon_name": "edit-copy" }
+          , "paste":          { "type": "button" , "icon_name": "edit-paste" }
           , "undo":           { "type": "button" , "icon_name": "edit-undo" }
           , "delete":         { "type": "button" , "icon_name": "edit-delete" }
           , "apply":          { "type": "button" , "icon_name": "document-save" }
@@ -1715,6 +1837,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.drop_down_models = {}
         self.sql_executions_callback = sql_executions_callback
         self.mogrify_column_callbacks = mogrify_column_callbacks
+        self.shared_mem_db = shared_mem_db
+        self.primary_keys = primary_keys
+
+        self.setup_shared_mem_db()
 
         for i in kwargs.keys():
             setattr( self , i , kwargs[i] )
@@ -1779,7 +1905,15 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
     def get_current_grid_row( self ):
 
         position = self.datasheet.single_selection.get_selected()
-        grid_row = self.datasheet.single_selection[ position ]
+        try:
+            grid_row = self.datasheet.single_selection[ position ]
+        except Exception as e:
+            self.dialog(
+                title="Failed to get current grid row!"
+              , type="warning"
+              , text=e
+            )
+            return None
         return grid_row
 
     def get( self , column_name ):
@@ -2047,10 +2181,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
                   , css_provider = None , before_insert = False , on_insert = False , drop_downs = {}
-                  , sql_executions_callback = None , mogrify_column_callbacks = {} ):
+                  , sql_executions_callback = None , mogrify_column_callbacks = {} , shared_mem_db=None , primary_keys=None ):
 
         if recordset_items is None:
-            recordset_items = [ "status" , "spinner" , "insert" , "undo" , "delete" , "apply" ]
+            recordset_items = [ "status" , "spinner" , "insert" , "copy" , "paste" , "undo" , "delete" , "apply" ]
 
         self.recordset_items = recordset_items
 
@@ -2062,6 +2196,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             "status":         { "type": "status_icon" }
           , "spinner":        { "type": "spinbutton" }
           , "insert":         { "type": "button" , "icon_name": "document-new" }
+          , "copy":           { "type": "button" , "icon_name": "edit-copy" }
+          , "paste":          { "type": "button" , "icon_name": "edit-paste" }
           , "undo":           { "type": "button" , "icon_name": "edit-undo" }
           , "delete":         { "type": "button" , "icon_name": "edit-delete" }
           , "apply":          { "type": "button" , "icon_name": "document-save" }
@@ -2108,6 +2244,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.sql_executions_callback = sql_executions_callback
         self.mogrify_column_callbacks = mogrify_column_callbacks
         self.status_icon = None
+        self.shared_mem_db = shared_mem_db
+        self.primary_keys = primary_keys
+
+        self.setup_shared_mem_db()
 
         red_frame_css = """
         entry.red-frame {
@@ -2177,7 +2317,16 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
     def get_current_grid_row( self ):
 
-        return self.model[ self.position ]
+        try:
+            grid_row = self.model[ position ]
+        except Exception as e:
+            self.dialog(
+                title="Failed to get current grid row!"
+              , type="warning"
+              , text=e
+            )
+            return None
+        return grid_row
 
     def get( self , column_name ):
 
@@ -2209,13 +2358,6 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             self.after_query()
 
         return True
-
-    # def __init__( self , column_definitions , data ):
-    #
-    #     super().__init__()
-    #
-    #     self.grid_row_class = None
-
 
     def move( self , offset = None , absolute = None ):
 
@@ -2321,17 +2463,20 @@ class Gtk4DbForm( Gtk4DbAbstract ):
     def highlight_null( self , column ):
 
         current_value = self.get( column )
-        widget = self.get_widget( column )
-        if current_value is None:
-            widget.add_css_class( 'red-frame' )
-        else:
-            widget.remove_css_class( 'red-frame' )
+        try:
+            widget = self.get_widget( column )
+            if current_value is None:
+                widget.add_css_class( 'red-frame' )
+            else:
+                widget.remove_css_class( 'red-frame' )
+        except Exception as e:
+            print( e )
 
     def any_changes( self ):
 
         row = self.model[ self.position ]
         state = row.row_state
-        if state == UNCHANGED or state == LOCKED:
+        if state == UNCHANGED or state == LOCKED or state == EMPTY:
             return False
         else:
             return True

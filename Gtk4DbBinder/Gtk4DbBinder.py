@@ -23,7 +23,7 @@ import pathlib
 import gi
 gi.require_version( "Gtk" , "4.0" )
 from gi.repository import Gtk, Gio, Gdk, Pango, GObject, GLib
-import json , uuid , importlib.util , sys , re , time , datetime
+import json , uuid , importlib.util , sys , re , time , datetime , sqlite3
 
 # Define some 'constants'
 # These are the names of icons we render for the relevant record statuses
@@ -129,7 +129,7 @@ class SharedBufferWindow:
 
         self.window = Gtk.Window( default_width=1200 , default_height=1000 )
         self.window.set_title( 'Shared Buffers' )
-        self.main_box = Gtk.Box( orientation=Gtk.Orientation.VERTICAL , spacing=10 , margin_top=10 , margin_botton=10 , margin_start=10 , margin_end=10 )
+        self.main_box = Gtk.Box( orientation=Gtk.Orientation.VERTICAL , spacing=10 , margin_top=10 , margin_bottom=10 , margin_start=10 , margin_end=10 )
 
         self.datasheet_box = Gtk.Box( orientation=Gtk.Orientation.VERTICAL , spacing=10 )
         self.window.set_child( self.main_box )
@@ -165,7 +165,7 @@ class SharedBufferWindow:
                "paste_all": {
                     "type": "button"
                   , "markup": "<b><span color='blue'>Paste all values ...</span></b>"
-                  , "icon_mame": "dialog-warning"
+                  , "icon_name": "dialog-warning"
                   , "handler": self.paste_all
                 }
              , "paste_over_only_empty": {
@@ -197,13 +197,13 @@ class SharedBufferWindow:
         else:
             for i in buffer_obj:
                 self.target_binder.insert()
-                self.paste( buffer_obj , all_values )
+                self.paste( i , all_values )
 
         self.window.close()
 
     def paste( self , buffer_obj , all_values ):
 
-        for x in buffer_obj.keys:
+        for x in buffer_obj.keys():
             if ( not all_values and not self.target_binder.get( x ) ) or ( all_values ):
                 self.target_binder.set( x , buffer_obj[ x ] )
             else:
@@ -1145,15 +1145,17 @@ class Gtk4DbAbstract( object ):
 
     def setup_shared_mem_db( self ):
 
-        if self.shared_mem_db:
-            cursor = self.shared_mem_db.cursor()
-            self.execute( cursor , """
-                create table if not exists shared_buffers(
-                    id        integer      primary key     autoincrement
-                  , name      string       not null
-                  , copy_time timestamp    default current_timestamp
-                  , buffer    string       not null
-                )""" )
+        if not self.shared_mem_db:
+            self.shared_mem_db = sqlite3.connect( ":memory:", isolation_level=None )
+
+        cursor = self.shared_mem_db.cursor()
+        self.execute( cursor , """
+            create table if not exists shared_buffers(
+                id        integer      primary key     autoincrement
+              , name      string       not null
+              , copy_time timestamp    default current_timestamp
+              , buffer    string       not null
+            )""" )
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 

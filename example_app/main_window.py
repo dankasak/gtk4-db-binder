@@ -37,6 +37,8 @@ class Main_Window( object ):
                  , "bind_values": []
                }
            }
+          , recordset_tools_box = self.builder.get_object( 'customer_recordset_tools_box' )
+          , on_apply = self.on_customer_apply
         )
 
         self.addresses = Gtk4DbDatasheet.generator(
@@ -140,6 +142,10 @@ class Main_Window( object ):
         )
 
         self.example_window.present()
+
+    def on_customer_apply( self , grid_row , state ):
+
+        print( "Hi!" )
 
     def on_manage_states_clicked( self , button ):
 

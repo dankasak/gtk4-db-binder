@@ -2320,7 +2320,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
     def get_current_grid_row( self ):
 
         try:
-            grid_row = self.model[ position ]
+            grid_row = self.model[ self.position ]
         except Exception as e:
             self.dialog(
                 title="Failed to get current grid row!"
@@ -2351,7 +2351,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.model = self.generate_model( self.fields , cursor )
         # If the query returned 0 records, we still want a ( blank ) record
         if not len( self.model ):
-            self.insert( None , row_state=UNCHANGED )
+            self.insert( None , row_state=EMPTY )
         self.move( 0 , 0 )
         self.widget_setup = True
         self.set_spinner_range()
@@ -2427,6 +2427,24 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                                                                      , column_name
                                                                    )
                 elif isinstance( widget , Gtk.CheckButton ):
+                    """
+                    Force NULL to False. CheckButtons often are backed by columns that are not nullable.
+                    Code that makes use of such columns will likely not have handling for NULL values.
+                    Other than border-highlighting the widget, as we do for Entry widgets, there's no
+                    way to visually indicate a NULL value. If we *don't* force these values to False,
+                    users will have to click each such widget ( which will set the value to True ) and
+                    then click it again ( which will set the value to False ). This is a horrible user
+                    experience. So it's best to just force to False if it's currently NULL."""
+                    if getattr( this_grid_row , column_name ) is None:
+                        """
+                        We *also* have to ensure we don't change the row_state, as it could be *either*
+                        UNCHANGED ( if we're populating with an actual record ) or EMPTY if the query
+                        didn't return anything, and we're assembling an 'empty' record. If we change the
+                        row_state, this will trigger our "do you want to apply the current record" dialog
+                        if this object is requeried, even if the user hasn't done anything with the record"""
+                        row_state = getattr( this_grid_row , "row_state" )
+                        setattr( this_grid_row , column_name , False )
+                        setattr( this_grid_row , "row_state" , row_state )
                     self.model_to_widget_bindings[ column_name ] = this_grid_row.bind_property(
                                                                        column_name , widget , "active"
                                                                      , GObject.BindingFlags.BIDIRECTIONAL
@@ -2576,10 +2594,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
     def delete( self , *args ):
 
-        # single_selection = self.datasheet.cv.get_model()
-        position = self.single_selection.get_selected()
-        grid_row = self.single_selection[ position ]
-        grid_row.row_state = DELETED
+        grid_row = self.get_current_grid_row()
+        if grid_row:
+            if self._do_delete( grid_row ):
+                self.model.remove( [ self.position ] )
 
 
 ##############################################################################################################

@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<!-- Created with Cambalache 0.94.1 -->
+<!-- Created with Cambalache 0.96.0 -->
 <interface>
   <!-- interface-name example_app.ui -->
-  <requires lib="gtk" version="4.12"/>
+  <requires lib="gtk" version="4.18"/>
   <object class="GtkWindow" id="main_window">
     <property name="default-width">1200</property>
     <property name="receives-default">True</property>
@@ -46,7 +46,12 @@
                 <property name="label">Customer Details</property>
                 <child>
                   <object class="GtkBox">
+                    <property name="margin-bottom">5</property>
+                    <property name="margin-end">5</property>
+                    <property name="margin-start">5</property>
+                    <property name="margin-top">5</property>
                     <property name="orientation">vertical</property>
+                    <property name="spacing">5</property>
                     <child>
                       <object class="GtkFrame">
                         <property name="label">ID</property>
@@ -58,18 +63,18 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkFrame" id="customer.id_2">
+                      <object class="GtkFrame">
                         <property name="label">Name</property>
                         <child>
                           <object class="GtkEntry" id="customer.name"/>
                         </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkFrame">
+                        <property name="label">Business Type</property>
                         <child>
-                          <object class="GtkFrame">
-                            <property name="label">Business Type</property>
-                            <child>
-                              <object class="GtkDropDown" id="customer.business_type_id"/>
-                            </child>
-                          </object>
+                          <object class="GtkDropDown" id="customer.business_type_id"/>
                         </child>
                       </object>
                     </child>
@@ -95,6 +100,11 @@
                             </child>
                           </object>
                         </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="customer_recordset_tools_box">
+                        <property name="spacing">5</property>
                       </object>
                     </child>
                   </object>

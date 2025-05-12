@@ -1,68 +1,7 @@
 <?xml version='1.0' encoding='UTF-8' standalone='no'?>
 <!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
-<cambalache-project version="0.94.0" target_tk="gtk-4.0">
-  <ui>
-	(1,None,"example_app.ui","main_window.ui",None,None,None,None,None,None,None),
-	(2,None,None,"states_window.ui",None,None,None,None,None,None,None)
-  </ui>
-  <object>
-	(1,1,"GtkWindow","main_window",None,None,None,None,0,None,None),
-	(1,19,"GtkPaned",None,1,None,None,None,0,None,None),
-	(1,22,"GtkBox",None,19,None,None,None,1,None,None),
-	(1,23,"GtkFrame",None,22,None,None,None,0,None,None),
-	(1,24,"GtkBox",None,23,None,None,None,0,None,None),
-	(1,25,"GtkFrame",None,24,None,None,None,0,None,None),
-	(1,26,"GtkEntry","customer.id",25,None,None,None,0,None,None),
-	(1,27,"GtkFrame","customer.id_2",24,None,None,None,1,None,None),
-	(1,28,"GtkEntry","customer.name",27,None,None,None,0,None,None),
-	(1,29,"GtkBox",None,24,None,None,None,2,None,None),
-	(1,30,"GtkFrame",None,29,None,None,None,0,None,None),
-	(1,31,"GtkCalendar","customer.contract_start_date",30,None,None,None,0,None,None),
-	(1,32,"GtkFrame",None,29,None,None,None,1,None,None),
-	(1,33,"GtkCalendar","customer.contract_end_date",32,None,None,None,0,None,None),
-	(1,34,"GtkFrame",None,22,None,None,None,1,None,None),
-	(1,35,"GtkBox","addresses_box",34,None,None,None,0,None,None),
-	(1,36,"GtkFrame",None,27,None,None,None,1,None,None),
-	(1,37,"GtkDropDown","customer.business_type_id",36,None,None,None,0,None,None),
-	(1,38,"GtkBox",None,19,None,None,None,0,None,None),
-	(1,39,"GtkFrame",None,38,None,None,None,0,None,None),
-	(1,40,"GtkBox","customer_list_box",39,None,None,None,0,None,None),
-	(1,41,"GtkButton","manage_states",38,None,None,None,1,None,None),
-	(2,1,"GtkWindow","states_window",None,None,None,None,0,None,None),
-	(2,2,"GtkBox","states_datasheet_box",1,None,None,None,0,None,None)
-  </object>
-  <object_property>
-	(1,1,"GtkWidget","receives-default","True",None,None,None,None,None,None,None,None,None),
-	(1,1,"GtkWindow","default-width","1200",None,None,None,None,None,None,None,None,None),
-	(1,19,"GtkPaned","position","400",None,None,None,None,None,None,None,None,None),
-	(1,22,"GtkOrientable","orientation","vertical",0,None,None,None,None,None,None,None,None),
-	(1,22,"GtkWidget","margin-bottom","10",None,None,None,None,None,None,None,None,None),
-	(1,22,"GtkWidget","margin-end","10",None,None,None,None,None,None,None,None,None),
-	(1,22,"GtkWidget","margin-start","10",None,None,None,None,None,None,None,None,None),
-	(1,22,"GtkWidget","margin-top","10",None,None,None,None,None,None,None,None,None),
-	(1,23,"GtkFrame","label","Customer Details",0,None,None,None,None,None,None,None,None),
-	(1,24,"GtkOrientable","orientation","vertical",0,None,None,None,None,None,None,None,None),
-	(1,25,"GtkFrame","label","ID",0,None,None,None,None,None,None,None,None),
-	(1,26,"GtkEntry","input-purpose","email",None,None,None,None,None,None,None,None,None),
-	(1,27,"GtkFrame","label","Name",0,None,None,None,None,None,None,None,None),
-	(1,30,"GtkFrame","label","Contract Start Date",0,None,None,None,None,None,None,None,None),
-	(1,31,"GtkWidget","hexpand","True",0,None,None,None,None,None,None,None,None),
-	(1,32,"GtkFrame","label","Contract Start Date",0,None,None,None,None,None,None,None,None),
-	(1,33,"GtkWidget","hexpand","True",0,None,None,None,None,None,None,None,None),
-	(1,34,"GtkFrame","label","Addresses",None,None,None,None,None,None,None,None,None),
-	(1,35,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
-	(1,36,"GtkFrame","label","Business Type",None,None,None,None,None,None,None,None,None),
-	(1,38,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None),
-	(1,39,"GtkFrame","label","Customer List",0,None,None,None,None,None,None,None,None),
-	(1,39,"GtkWidget","margin-bottom","10",0,None,None,None,None,None,None,None,None),
-	(1,39,"GtkWidget","margin-end","10",0,None,None,None,None,None,None,None,None),
-	(1,39,"GtkWidget","margin-start","10",0,None,None,None,None,None,None,None,None),
-	(1,39,"GtkWidget","margin-top","10",0,None,None,None,None,None,None,None,None),
-	(1,40,"GtkOrientable","orientation","vertical",0,None,None,None,None,None,None,None,None),
-	(1,41,"GtkButton","label","Manage States ...",None,None,None,None,None,None,None,None,None),
-	(2,2,"GtkOrientable","orientation","vertical",None,None,None,None,None,None,None,None,None)
-  </object_property>
-  <object_signal>
-	(1,1,41,"GtkButton","clicked","on_manage_states_clicked",None,0,0,0,None)
-  </object_signal>
+<!-- Created with Cambalache 0.96.0 -->
+<cambalache-project version="0.96.0" target_tk="gtk-4.0">
+  <ui filename="main_window.ui" sha256="55d742a6dabee5bca30de095807a0eb15d7287065fa10a8cac35dcd7778abaa3"/>
+  <ui filename="states_window.ui" sha256="4295821595d9800a33e66ccb798703763089d9b272b7ad39e082b1f3d5ce062d"/>
 </cambalache-project>

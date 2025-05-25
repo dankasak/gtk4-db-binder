@@ -122,9 +122,10 @@ class KeyValueModel ( GObject.Object ):
 
 class SharedBufferWindow:
 
-    def __init__( self , shared_mem_db , target_binder ):
+    def __init__( self , shared_mem_db , shared_copy_sources , target_binder ):
 
         self.shared_mem_db = shared_mem_db
+        self.shared_copy_sources = shared_copy_sources
         self.target_binder = target_binder
 
         self.window = Gtk.Window( default_width=1200 , default_height=1000 )
@@ -162,7 +163,12 @@ class SharedBufferWindow:
            ]
          , box = self.datasheet_box
          , recordset_extra_tools = {
-               "paste_all": {
+               "delete_buffer": {
+                   "type": "checkbutton"
+                 , "text": "delete buffer after pasting"
+                 , "default": True
+               }
+             , "paste_all": {
                     "type": "button"
                   , "markup": "<b><span color='blue'>Paste all values ...</span></b>"
                   , "icon_name": "dialog-warning"
@@ -175,7 +181,7 @@ class SharedBufferWindow:
                  , "handler": self.paste_over_empty
                }
             }
-          , recordset_items = [ "paste_all" , "paste_over_only_empty" ]
+          , recordset_items = [ "delete_buffer" , "paste_all" , "paste_over_only_empty" ]
         )
 
         self.window.present()
@@ -190,18 +196,42 @@ class SharedBufferWindow:
 
     def paste_wrapper( self , all_values ):
 
-        buffer = self.datasheet.get( 'buffer' )
-        buffer_obj = json.loads( buffer )
+        buffer_id   = self.datasheet.get( 'id' )
+        buffer      = self.datasheet.get( 'buffer' )
+        buffer_obj  = json.loads( buffer )
+        copy_source = self.shared_copy_sources[ buffer_id ]
+
         if isinstance( buffer_obj , dict ):
-            self.paste( buffer_obj , all_values )
+            self.paste( copy_source , buffer_obj , all_values )
         else:
             for i in buffer_obj:
                 self.target_binder.insert()
-                self.paste( i , all_values )
+                self.paste( copy_source , i , all_values )
+
+        if self.datasheet.recordset_tools_dict[ 'delete_buffer' ].get_active():
+            self.shared_mem_db.execute(
+                "delete from shared_buffers where id = ?" , [ buffer_id ]
+            )
+            del self.shared_copy_sources[ buffer_id ]
 
         self.window.close()
 
-    def paste( self , buffer_obj , all_values ):
+    def paste( self , copy_source , buffer_obj , all_values ):
+
+        """
+            buffer_obj - a dict representing the record being pasted
+            all_values - a boolean indicating whether to overwrite populated values in the target record
+                         ( note this will overwrite eg foreign keys set up by foreign key binders )
+
+            First, we get hold of the source + target binder objects, and check whether they have copy / paste
+            transformers defined. If so, we call them to transform the values in the copy buffer before
+            setting them in the target binder.
+        """
+
+        if copy_source.copy_transform_callback:
+            buffer_obj = copy_source.copy_transform_callback( buffer_obj )
+        if self.target_binder.paste_transform_callback:
+            buffer_obj = self.target_binder.paste_transform_callback( buffer_obj )
 
         for x in buffer_obj.keys():
             if ( not all_values and not self.target_binder.get( x ) ) or ( all_values ):
@@ -213,6 +243,12 @@ class SharedBufferWindow:
 class Gtk4DbAbstract( object ):
 
     """This logic is common to Form and Datasheet classes"""
+
+    """These next variables are global class variables that we use to facilitate copy + paste
+       between different Gtk4DbBinder instances"""
+
+    shared_mem_db = None
+    shared_copy_sources = None
 
     def setup_fields( self , rebuild=False  ):
 
@@ -243,6 +279,7 @@ class Gtk4DbAbstract( object ):
                     for field in self.fieldlist:
                         self.fields.append(
                             {
+
                                 "name"       : field
                               , "x_absolute" : 100
                             }
@@ -785,8 +822,13 @@ class Gtk4DbAbstract( object ):
             elif this_item['type'] == 'status_icon':
                 widget = Gtk.Image.new()
                 self.status_icon = widget
+            elif this_item['type'] == 'checkbutton':
+                widget = Gtk.CheckButton.new_with_label( this_item['text'] )
+                if 'default' in this_item.keys():
+                    widget.set_active( this_item['default'] )
 
             self.recordset_tools_box.append( widget )
+            self.recordset_tools_dict[ item_name ] = widget
 
     def handle_spinner_update( self , widget ):
 
@@ -847,20 +889,25 @@ class Gtk4DbAbstract( object ):
 
         all = []
         for i in self.model:
-            all.append( { field: getattr( i , field ) for field in self.fieldlist } )
+            all.append( { field: str( getattr( i , field ) ) for field in self.fieldlist } )
         return all
 
     def copy( self , button ):
 
+        cursor = self.shared_mem_db.cursor()
         self.execute(
-            self.shared_mem_db.cursor()
+            cursor
           , "insert into shared_buffers( name , buffer ) values ( ? , ? )"
           , [ self.friendly_table_name , json.dumps( self.get_all_dicts() ) ]
         )
+        generated_id = cursor.lastrowid
+        """Register ourself as the source of this copy operation. This allows paste operations to call paste
+        transformers in us, eg to transform values between one environment and another"""
+        self.shared_copy_sources[ generated_id ] = self
 
     def paste( self , button ):
 
-        shared_buffer_window = SharedBufferWindow( self.shared_mem_db , self )
+        shared_buffer_window = SharedBufferWindow( self.shared_mem_db , self.shared_copy_sources , self )
 
     def column_names_from_cursor( self , cursor ):
         raise Exception( "The column_names_from_cursor() method needs to be implemented by a subclass" )
@@ -1145,17 +1192,21 @@ class Gtk4DbAbstract( object ):
 
     def setup_shared_mem_db( self ):
 
+        """The 1st instance of a Gtk4DbAbstract instantiated should set up the shared mem db"""
+
         if not self.shared_mem_db:
             self.shared_mem_db = sqlite3.connect( ":memory:", isolation_level=None )
+            cursor = self.shared_mem_db.cursor()
+            self.execute( cursor , """
+                create table if not exists shared_buffers(
+                    id        integer      primary key     autoincrement
+                  , name      string       not null
+                  , copy_time timestamp    default current_timestamp
+                  , buffer    string       not null
+                )""" )
 
-        cursor = self.shared_mem_db.cursor()
-        self.execute( cursor , """
-            create table if not exists shared_buffers(
-                id        integer      primary key     autoincrement
-              , name      string       not null
-              , copy_time timestamp    default current_timestamp
-              , buffer    string       not null
-            )""" )
+        if not self.shared_copy_sources:
+            self.shared_copy_sources = {}
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
@@ -1782,7 +1833,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , quiet=False, recordset_items=None, on_row_select=None
                  , before_insert=None, on_insert=None
                  , drop_downs={}, sql_executions_callback=None , mogrify_column_callbacks={}
-                 , shared_mem_db=None , primary_keys=None , **kwargs ):
+                 , primary_keys=None , copy_transform_callback=None , paste_transform_callback=None , **kwargs ):
 
         if recordset_items is None:
             recordset_items = [ "insert", "copy" , "paste" , "undo", "delete", "apply" ] # "data_to_csv"
@@ -1839,8 +1890,10 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.drop_down_models = {}
         self.sql_executions_callback = sql_executions_callback
         self.mogrify_column_callbacks = mogrify_column_callbacks
-        self.shared_mem_db = shared_mem_db
         self.primary_keys = primary_keys
+        self.copy_transform_callback = copy_transform_callback
+        self.paste_transform_callback = paste_transform_callback
+        self.recordset_tools_dict = {}
 
         self.setup_shared_mem_db()
 
@@ -2183,7 +2236,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
                   , css_provider = None , before_insert = False , on_insert = False , drop_downs = {}
-                  , sql_executions_callback = None , mogrify_column_callbacks = {} , shared_mem_db=None , primary_keys=None ):
+                  , sql_executions_callback = None , mogrify_column_callbacks = {}
+                  , copy_transform_callback = None , paste_transform_callback = None , primary_keys=None ):
 
         if recordset_items is None:
             recordset_items = [ "status" , "spinner" , "insert" , "copy" , "paste" , "undo" , "delete" , "apply" ]
@@ -2246,8 +2300,10 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.sql_executions_callback = sql_executions_callback
         self.mogrify_column_callbacks = mogrify_column_callbacks
         self.status_icon = None
-        self.shared_mem_db = shared_mem_db
         self.primary_keys = primary_keys
+        self.copy_transform_callback = copy_transform_callback
+        self.paste_transform_callback = paste_transform_callback
+        self.recordset_tools_dict = {}
 
         self.setup_shared_mem_db()
 

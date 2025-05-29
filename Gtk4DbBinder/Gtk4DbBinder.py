@@ -186,11 +186,11 @@ class SharedBufferWindow:
 
         self.window.present()
 
-    def paste_all( self , button ):
+    def paste_all( self , button=None ):
 
         self.paste_wrapper( True )
 
-    def paste_over_empty( self , button ):
+    def paste_over_empty( self , button=None ):
 
         self.paste_wrapper( False )
 
@@ -229,13 +229,21 @@ class SharedBufferWindow:
         """
 
         if copy_source.copy_transform_callback:
-            buffer_obj = copy_source.copy_transform_callback( buffer_obj )
+            buffer_obj[ 'raw_values' ] = copy_source.copy_transform_callback( copy_source , buffer_obj[ 'raw_values' ] , 'raw_values' )
+            if buffer_obj[ 'combo_display_strings' ]:
+                buffer_obj[ 'combo_display_strings' ] = copy_source.copy_transform_callback( copy_source , buffer_obj[ 'combo_display_strings' ] , 'combo_display_strings' )
         if self.target_binder.paste_transform_callback:
-            buffer_obj = self.target_binder.paste_transform_callback( buffer_obj )
+            buffer_obj[ 'raw_values' ] = self.target_binder.paste_transform_callback( self.target_binder , buffer_obj[ 'raw_values' ] , 'raw_values' )
+            if buffer_obj[ 'combo_display_strings' ]:
+                buffer_obj[ 'combo_display_strings' ] = self.target_binder.paste_transform_callback( self.target_binder , buffer_obj[ 'combo_display_strings' ] , 'combo_display_strings' )
 
-        for x in buffer_obj.keys():
+        for x in buffer_obj[ 'raw_values' ].keys():
             if ( not all_values and not self.target_binder.get( x ) ) or ( all_values ):
-                self.target_binder.set( x , buffer_obj[ x ] )
+                """Try to set combo display string - which is more portable across environments"""
+                if x in buffer_obj[ 'combo_display_strings' ].keys():
+                    self.target_binder.set_drop_down_by_text( x , buffer_obj[ 'combo_display_strings' ][ x ] )
+                else:
+                    self.target_binder.set( x , buffer_obj[ 'raw_values' ][ x ] )
             else:
                 print( "Skipping pasting value for {0} as it's not empty, and user indicated to only paste over empty values".format( x ) )
 
@@ -425,7 +433,7 @@ class Gtk4DbAbstract( object ):
 
         if where:
             self.sql['where'] = where
-        if bind_values:
+        if bind_values is not None:
             self.sql['bind_values'] = bind_values
 
         # Handle outstanding changes in the current datasheet, if it exists
@@ -882,17 +890,31 @@ class Gtk4DbAbstract( object ):
     def get_current_dict( self ):
 
         grid_row = self.get_current_grid_row()
-        current_dict = { field: str( getattr( grid_row , field ) ) for field in self.fieldlist }
-        return current_dict
+        return self.grid_row_to_dict( grid_row )
+
+    def grid_row_to_dict( self , grid_row ):
+
+        raw_values = { field: str( getattr( grid_row , field ) ) for field in self.fieldlist }
+        combo_display_strings = { field: self.combo_key_to_display_string( field , getattr( grid_row , field ) ) for field in self.fieldlist if field in self.drop_downs.keys() }
+        return { 'raw_values': raw_values , 'combo_display_strings': combo_display_strings }
+
+    def combo_key_to_display_string( self , column_name , key ):
+
+        if column_name in self.drop_down_models.keys():
+            model = self.drop_down_models[ column_name ]
+            for i in model:
+                if i.key == key:
+                    return i.value
+            return None
 
     def get_all_dicts( self ):
 
         all = []
         for i in self.model:
-            all.append( { field: str( getattr( i , field ) ) for field in self.fieldlist } )
+            all.append( self.grid_row_to_dict( i ) )
         return all
 
-    def copy( self , button ):
+    def copy( self , button=None ):
 
         cursor = self.shared_mem_db.cursor()
         self.execute(
@@ -905,9 +927,10 @@ class Gtk4DbAbstract( object ):
         transformers in us, eg to transform values between one environment and another"""
         self.shared_copy_sources[ generated_id ] = self
 
-    def paste( self , button ):
+    def paste( self , button=None ):
 
         shared_buffer_window = SharedBufferWindow( self.shared_mem_db , self.shared_copy_sources , self )
+        return shared_buffer_window
 
     def column_names_from_cursor( self , cursor ):
         raise Exception( "The column_names_from_cursor() method needs to be implemented by a subclass" )
@@ -1190,14 +1213,15 @@ class Gtk4DbAbstract( object ):
 
         self.sql_executions_callback = sql_executions_callback
 
-    def setup_shared_mem_db( self ):
+    @classmethod
+    def setup_shared_mem_db( cls ):
 
         """The 1st instance of a Gtk4DbAbstract instantiated should set up the shared mem db"""
 
-        if not self.shared_mem_db:
-            self.shared_mem_db = sqlite3.connect( ":memory:", isolation_level=None )
-            cursor = self.shared_mem_db.cursor()
-            self.execute( cursor , """
+        if not cls.shared_mem_db:
+            cls.shared_mem_db = sqlite3.connect( ":memory:", isolation_level=None )
+            cursor = cls.shared_mem_db.cursor()
+            cursor.execute( """
                 create table if not exists shared_buffers(
                     id        integer      primary key     autoincrement
                   , name      string       not null
@@ -1205,8 +1229,9 @@ class Gtk4DbAbstract( object ):
                   , buffer    string       not null
                 )""" )
 
-        if not self.shared_copy_sources:
-            self.shared_copy_sources = {}
+        if not cls.shared_copy_sources:
+            cls.shared_copy_sources = {}
+
 
 class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
 
@@ -1916,9 +1941,12 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
 
         if not self.no_auto_tools_box:
             # self.recordset_tools_box = Gtk.Box( orientation = Gtk.Orientation.HORIZONTAL , spacing = 5 )
-            self.recordset_tools_box = Gtk.FlowBox( orientation = Gtk.Orientation.HORIZONTAL )
+            self.recordset_tools_box = Gtk.FlowBox( orientation=Gtk.Orientation.HORIZONTAL , homogeneous=False , max_children_per_line=10 )
             self.recordset_tools_box.set_hexpand( True )
-            self.recordset_tools_box.set_homogeneous( True )
+            self.recordset_tools_box.set_hexpand_set( True )
+            self.recordset_tools_box.set_vexpand( False )
+            self.recordset_tools_box.set_vexpand_set( False )
+            self.recordset_tools_box.set_valign( Gtk.Align.START )
             self.box.append( self.recordset_tools_box )
         else:
             self.recordset_tools_box = None
@@ -2237,7 +2265,7 @@ class Gtk4DbForm( Gtk4DbAbstract ):
                   , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
                   , css_provider = None , before_insert = False , on_insert = False , drop_downs = {}
                   , sql_executions_callback = None , mogrify_column_callbacks = {}
-                  , copy_transform_callback = None , paste_transform_callback = None , primary_keys=None ):
+                  , copy_transform_callback = None , paste_transform_callback = None , primary_keys=None , **kwargs ):
 
         if recordset_items is None:
             recordset_items = [ "status" , "spinner" , "insert" , "copy" , "paste" , "undo" , "delete" , "apply" ]
@@ -2319,8 +2347,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         d = Gdk.Display.get_default()
         Gtk.StyleContext.add_provider_for_display( d, self.css_provider , Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION )
 
-        # for i in kwargs.keys():
-        #     setattr( self , i , kwargs[i] )
+        for i in kwargs.keys():
+            setattr( self , i , kwargs[i] )
 
         if not len( friendly_table_name ):
             self.friendly_table_name = self.sql['from']

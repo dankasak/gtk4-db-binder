@@ -547,7 +547,7 @@ class Gtk4DbAbstract( object ):
                 this_value = foreign_keys[ i ]
             new_record_values.append( this_value )
 
-        new_grid_row = self.grid_row_class( 0 , new_record_values )
+        new_grid_row = self.grid_row_class( len( self.model ) , new_record_values )
         new_grid_row.row_state = row_state
         self.model.append( new_grid_row )
 

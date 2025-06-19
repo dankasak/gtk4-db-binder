@@ -79,7 +79,7 @@ class GridProgressBar( Gtk.ProgressBar , GridWidget ):
 
     def __init__( self , **kwargs ):
 
-        super().__init__( **kwargs ):
+        super().__init__( **kwargs )
 
 
 class ForeignKeyBinder( GObject.Object ):

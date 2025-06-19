@@ -75,6 +75,12 @@ class GridImage( Gtk.Image , GridWidget ):
 
         super().__init__( **kwargs )
 
+class GridProgressBar( Gtk.ProgressBar , GridWidget ):
+
+    def __init__( self , **kwargs ):
+
+        super().__init__( **kwargs ):
+
 
 class ForeignKeyBinder( GObject.Object ):
     __gtype_name__ = 'ForeignKeyBinder'
@@ -1370,6 +1376,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget = GridImage( column_name=name )
         elif type == "image":
             widget = GridImage( column_name=name )
+        elif type == "progress":
+            widget = GridProgressBar( column_name=name )
         else:
             raise Exception( "Unknown type: {0}".format( type ) )
 
@@ -1420,6 +1428,8 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         elif type == "image":
             widget._binding = grid_row.bind_property( column_name , widget , "resource" , GObject.BindingFlags.SYNC_CREATE )
             print( "image: {0}".format( getattr( grid_row , column_name ) ) )
+        elif type == "progress":
+            widget._binding = grid_row.bind_property( column_name , widget , "fraction" , GObject.BindingFlags.SYNC_CREATE )
         else:
             raise Exception( "Unknown type {0}".format( type ) )
 

@@ -1170,6 +1170,14 @@ class Gtk4DbAbstract( object ):
             position = position + 1
         return None
 
+    def bind_progress_transform_to( self , binding , this_fraction_as_str ):
+
+        """We typically get a string from the DB, and this needs to be a gdouble"""
+        if this_fraction_as_str is None:
+            return 0
+        else:
+            return float( this_fraction_as_str )
+
     def bind_dropdown_transform_from( self , binding , selected_position , column_name ):
 
         # Here we're transforming from the dropdown's "selected" position to a value
@@ -1429,7 +1437,12 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             widget._binding = grid_row.bind_property( column_name , widget , "resource" , GObject.BindingFlags.SYNC_CREATE )
             print( "image: {0}".format( getattr( grid_row , column_name ) ) )
         elif type == "progress":
-            widget._binding = grid_row.bind_property( column_name , widget , "fraction" , GObject.BindingFlags.SYNC_CREATE )
+            widget._binding = grid_row.bind_property( column_name
+                                                    , widget
+                                                    , "fraction"
+                                                    , GObject.BindingFlags.SYNC_CREATE
+                                                    , self.bind_progress_transform_to
+                                                    )
         else:
             raise Exception( "Unknown type {0}".format( type ) )
 

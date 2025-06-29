@@ -465,6 +465,9 @@ class Gtk4DbAbstract( object ):
 
         self._do_query()
 
+        if self.on_query():
+            self.on_query()
+
         return True
 
     def _do_query( self ):
@@ -1385,7 +1388,7 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         elif type == "image":
             widget = GridImage( column_name=name )
         elif type == "progress":
-            widget = GridProgressBar( column_name=name )
+            widget = GridProgressBar( column_name=name ,show_text=True )
         else:
             raise Exception( "Unknown type: {0}".format( type ) )
 
@@ -1434,8 +1437,12 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
         elif type == "status_icon":
             widget._binding = grid_row.bind_property( column_name , widget , "icon-name" , GObject.BindingFlags.SYNC_CREATE )
         elif type == "image":
-            widget._binding = grid_row.bind_property( column_name , widget , "resource" , GObject.BindingFlags.SYNC_CREATE )
-            print( "image: {0}".format( getattr( grid_row , column_name ) ) )
+#            widget._binding = grid_row.bind_property( column_name , widget , "resource" , GObject.BindingFlags.SYNC_CREATE )
+#            print( "image: {0}".format( getattr( grid_row , column_name ) ) )
+            """For images, we want to support rendering an adhoc image based on an image path. We can't directly set this up
+               using the binding machinery, so we do it manually using signals"""
+            self.update_image( widget , grid_row )
+            grid_row.connect( 'notify::{0}'.format( column_name ) , self.on_image_path_changed , grid_row )
         elif type == "progress":
             widget._binding = grid_row.bind_property( column_name
                                                     , widget
@@ -1468,6 +1475,19 @@ class DatasheetWidget( Gtk.ScrolledWindow , Gtk4DbAbstract ):
             counter = counter + 1
         return False
 
+    def on_image_path_changed( self , model_item , pspec , list_item ):
+
+        image = list_item.get_child()
+        self.update_image( image , model_item )
+
+    def update_image( self , image , model_item ):
+
+        image_path = model_item.get_property( model_item.column_name )
+        if image_path:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size( image_path , 32 , 32 ) # TODO: make size configurable
+            image.set_from_pixbuf( pixbuf )
+        else:
+            image.clear()
 
 class Gtk4PostgresAbstract( Gtk4DbAbstract ):
 
@@ -1879,7 +1899,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
                  , sw_no_scroll=False, dump_on_error=False, no_auto_tools_box=False
                  , before_apply=False, custom_changed_text = '', friendly_table_name=''
                  , quiet=False, recordset_items=None, on_row_select=None
-                 , before_insert=None, on_insert=None
+                 , before_insert=None, on_insert=None , on_query=None
                  , drop_downs={}, sql_executions_callback=None , mogrify_column_callbacks={}
                  , primary_keys=None , copy_transform_callback=None , paste_transform_callback=None , **kwargs ):
 
@@ -1932,6 +1952,7 @@ class Gtk4DbDatasheet( Gtk4DbAbstract ):
         self.current_track = None
         self.before_insert = before_insert
         self.on_insert = on_insert
+        self.on_query = on_query
         self.child_foreign_key_binders = []
         self.foreign_key_binder = None
         self.drop_downs = drop_downs
@@ -2282,13 +2303,13 @@ class Gtk4DbForm( Gtk4DbAbstract ):
             else:
                 raise Exception( "Unsupported database type: {0}".format( target_class ) )
 
-    def __init__( self , connection = None , sql = {} , builder=None , read_only=False , auto_apply=False , data_lock_field = None
+    def __init__( self , connection=None , sql = {} , builder=None , read_only=False , auto_apply=False , data_lock_field=None
                   , dont_update_keys=False , auto_incrementing=True , on_apply=False , sw_no_scroll=False , dump_on_error=False
-                  , auto_tools_box = None , before_apply=False , custom_changed_text = '' , friendly_table_name=''
-                  , recordset_tools_box = None , recordset_items = None , quiet=False, widget_prefix=None
-                  , css_provider = None , before_insert = False , on_insert = False , drop_downs = {}
-                  , sql_executions_callback = None , mogrify_column_callbacks = {}
-                  , copy_transform_callback = None , paste_transform_callback = None , primary_keys=None , **kwargs ):
+                  , auto_tools_box= None , before_apply=False , custom_changed_text='' , friendly_table_name=''
+                  , recordset_tools_box=None , recordset_items=None , quiet=False, widget_prefix=None
+                  , css_provider=None , before_insert=False , on_insert=False , on_row_select=None , on_query=None
+                  , drop_downs={} , sql_executions_callback=None , mogrify_column_callbacks={}
+                  , copy_transform_callback=None , paste_transform_callback=None , primary_keys=None , **kwargs ):
 
         if recordset_items is None:
             recordset_items = [ "status" , "spinner" , "insert" , "copy" , "paste" , "undo" , "delete" , "apply" ]
@@ -2325,6 +2346,8 @@ class Gtk4DbForm( Gtk4DbAbstract ):
         self.before_apply = before_apply
         self.before_insert = before_insert
         self.on_insert = on_insert
+        self.on_row_select = on_row_select
+        self.on_query = on_query
         self.changed_signal = None
 
         self.after_query = None
@@ -2487,6 +2510,9 @@ class Gtk4DbForm( Gtk4DbAbstract ):
 
         for fkb in self.child_foreign_key_binders:
             self.sync_grid_row_to_foreign_key_binding( self.get_current_grid_row() , fkb )
+
+        if self.on_row_select:
+            self.on_row_select( self.get_current_grid_row() )
 
 
     def undo( self , *args ):

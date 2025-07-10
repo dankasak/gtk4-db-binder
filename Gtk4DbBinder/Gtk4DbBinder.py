@@ -465,7 +465,7 @@ class Gtk4DbAbstract( object ):
 
         self._do_query()
 
-        if self.on_query():
+        if self.on_query:
             self.on_query()
 
         return True
@@ -876,7 +876,7 @@ class Gtk4DbAbstract( object ):
             raise e
 
         end_time = time.time()
-#        print( "DB execute() completed in {0} seconds".format( round( end_time - start_time ) , 2 ) )
+        self.last_execution_time = round( ( end_time - start_time ) * 1000 ) # milliseconds
 
     def fetchrow_dict( self , cursor ):
 
